@@ -1,0 +1,281 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
+}
+
+/* Theme-driven colors — the actual values are set per time-of-day as inline
+   CSS vars on the app wrapper, so utilities update live when the phase flips. */
+@theme inline {
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-3: var(--accent-3);
+  --color-veil: var(--veil);
+  --color-chip: var(--chip);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-display);
+  line-height: 1.6;
+}
+
+@layer components {
+.app-bg {
+  background: linear-gradient(155deg, var(--bg-a) 0%, var(--bg-b) 45%, var(--bg-c) 100%);
+  background-attachment: fixed;
+  color: var(--ink);
+}
+
+/* ---- Intentional imperfection: film grain over everything ---- */
+.grain::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ---- Liquid glass surface ---- */
+.glass {
+  position: relative;
+  background: var(--surface);
+  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--veil);
+}
+
+/* refractive top-edge highlight */
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent 5%, rgb(255 255 255 / 0.7) 50%, transparent 95%);
+  pointer-events: none;
+}
+
+/* cursor-following light refraction (driven by --mx / --my from JS) */
+.glass-live {
+  overflow: hidden;
+}
+.glass-live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background: radial-gradient(
+    420px circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in oklab, var(--accent) 16%, transparent),
+    transparent 65%
+  );
+}
+.glass-live:hover::after {
+  opacity: 1;
+}
+} /* end @layer components */
+
+/* ---- Kinetic typography ---- */
+.text-liquid {
+  background: linear-gradient(100deg, var(--accent), var(--accent-2), var(--accent-3), var(--accent));
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: liquid-flow 9s ease-in-out infinite;
+}
+
+@keyframes liquid-flow {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* soft same-hue drop for the pastel display type */
+.type-soft {
+  text-shadow: 0.035em 0.05em 0 rgb(0 0 0 / 0.14);
+}
+
+/* ---- Photo collage tiles ---- */
+@layer components {
+.photo-ph {
+  background: var(--chip);
+  border: 1.5px solid color-mix(in oklab, var(--ink-faint) 28%, transparent);
+  rotate: var(--tilt, 0deg);
+  transition: rotate 0.35s ease, translate 0.35s ease, box-shadow 0.35s ease;
+}
+.photo-ph:hover {
+  rotate: 0deg;
+  translate: 0 -4px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.12);
+}
+}
+
+/* ---- Purposeful motion: reveal on scroll, guides reading order ---- */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.reveal.in-view {
+  opacity: 1;
+  transform: none;
+}
+
+@keyframes drift {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(4%, -6%, 0) scale(1.08); }
+}
+.animate-drift {
+  animation: drift 18s ease-in-out infinite;
+}
+
+/* ---- Sky elements ---- */
+@keyframes fly {
+  0%   { transform: translateX(-8vw) translateY(0) scale(var(--bird-scale, 1)); }
+  25%  { transform: translateX(24vw) translateY(-2.5vh) scale(var(--bird-scale, 1)); }
+  50%  { transform: translateX(54vw) translateY(1vh) scale(var(--bird-scale, 1)); }
+  75%  { transform: translateX(82vw) translateY(-1.5vh) scale(var(--bird-scale, 1)); }
+  100% { transform: translateX(110vw) translateY(0) scale(var(--bird-scale, 1)); }
+}
+.bird {
+  position: absolute;
+  left: 0;
+  animation: fly var(--fly-dur, 60s) linear infinite;
+}
+
+@keyframes twinkle {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+.twinkle {
+  animation: twinkle 3.2s ease-in-out infinite;
+}
+
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+.float-slow {
+  animation: float-slow 8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .text-liquid, .animate-drift, .bird, .twinkle, .float-slow { animation: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+/* ---- Mini-app chrome ---- */
+@layer components {
+.tabbar {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+}
+
+/* ---- Markdown (blog) ---- */
+.prose-hub {
+  color: var(--ink-soft);
+  line-height: 1.75;
+  font-size: 1.05rem;
+}
+.prose-hub h1, .prose-hub h2, .prose-hub h3, .prose-hub h4 {
+  color: var(--ink);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 1.6em 0 0.6em;
+  line-height: 1.2;
+}
+.prose-hub h1 { font-size: 2.2rem; margin-top: 0.2em; }
+.prose-hub h2 { font-size: 1.6rem; }
+.prose-hub h3 { font-size: 1.25rem; }
+.prose-hub p { margin: 0.9em 0; }
+.prose-hub a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.prose-hub strong, .prose-hub b { color: var(--ink); }
+.prose-hub ul, .prose-hub ol { margin: 0.9em 0; padding-left: 1.4em; }
+.prose-hub li { margin: 0.35em 0; }
+.prose-hub li::marker { color: var(--accent); }
+.prose-hub blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.4em 1.2em;
+  margin: 1.2em 0;
+  background: var(--chip);
+  border-radius: 0 12px 12px 0;
+  color: var(--ink);
+  font-style: italic;
+}
+.prose-hub code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--chip);
+  border: 1px solid var(--veil);
+  border-radius: 6px;
+  padding: 0.12em 0.4em;
+  color: var(--ink);
+}
+.prose-hub pre {
+  background: rgb(15 23 42 / 0.85);
+  border: 1px solid var(--veil);
+  border-radius: 14px;
+  padding: 1.1em 1.3em;
+  overflow-x: auto;
+  margin: 1.2em 0;
+}
+.prose-hub pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #e2e8f0;
+  font-size: 0.85rem;
+}
+.prose-hub img {
+  max-width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--veil);
+  margin: 1.2em 0;
+}
+.prose-hub hr { border: none; border-top: 1px solid var(--veil); margin: 2em 0; }
+.prose-hub table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.2em 0;
+  display: block;
+  overflow-x: auto;
+  font-size: 0.92rem;
+}
+.prose-hub th, .prose-hub td {
+  border: 1px solid var(--veil);
+  padding: 0.5em 0.9em;
+  text-align: left;
+}
+.prose-hub th { color: var(--ink); background: var(--chip); }
+
+/* ---- Scrollbar ---- */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-c, #020617);
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--accent, #22d3ee) 55%, transparent);
+  border-radius: 4px;
+}

@@ -1,0 +1,16 @@
+{
+  "name": "aihub-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "message": "node send-message.js"
+  },
+  "dependencies": {
+    "@ton/core": "^0.62.0",
+    "express": "^5.2.1",
+    "qrcode": "^1.5.4"
+  }
+}
