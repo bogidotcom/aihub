@@ -9,11 +9,13 @@ import QRCode from 'qrcode'
 import { db, genToken, seedDemoEvents } from './db.js'
 import { attachUser, requireAuth, requireAdmin, validateInitData, validateWidget, upsertUser, createSession } from './auth.js'
 import { YOGA_PACKAGES, YOGA_SLOTS, VIBECODING_PROGRAMS } from './catalog.js'
-import { createOrder, fulfillOrder, markPaid, startWatcher, buildTonPayload, ALT_ADDRESSES, setNotifiers } from './payments.js'
+import { createOrder, fulfillOrder, markPaid, startWatcher, buildTonPayload, ALT_ADDRESSES, KGST, amountLabel, setNotifiers } from './payments.js'
 import { startBot, sendTo, notifyAdmins, getBotUsername } from './bot.js'
+import { startTherm, createProject } from './therm.js'
+import { previewHandler, resolveColosseum } from './colosseum.js'
 
 const app = express()
-const PORT = Number(process.env.PORT || 3400)
+const PORT = Number(process.env.PORT || 3460)
 const BLOG_DIR = path.join(__dirname, '..', 'content', 'blog')
 const DIST_DIR = path.join(__dirname, '..', 'dist')
 
@@ -32,6 +34,7 @@ app.get('/api/config', (_req, res) => {
     bot_username: getBotUsername(),
     ton_address: process.env.TON_ADDRESS || '',
     alt_addresses: ALT_ADDRESSES,
+    kgst: KGST,
     yoga_packages: Object.values(YOGA_PACKAGES),
     yoga_slots: Object.values(YOGA_SLOTS),
     vibecoding_programs: Object.values(VIBECODING_PROGRAMS),
@@ -108,11 +111,13 @@ app.get('/api/blog/:slug', (req, res) => {
   res.json({ post })
 })
 
+app.get('/api/colosseum/preview', previewHandler)
+
 // ---------- events ----------
 const hydrateEvent = (e) => ({
   ...e,
-  when: new Date(e.starts_at).getTime() >= Date.now() ? 'upcoming' : 'past',
-  ticket_types: db.prepare('SELECT * FROM ticket_types WHERE event_id = ? AND active = 1 ORDER BY CAST(price_usdt AS REAL) ASC').all(e.id)
+  when: new Date(e.ends_at || e.starts_at).getTime() >= Date.now() ? 'upcoming' : 'past',
+  ticket_types: db.prepare('SELECT * FROM ticket_types WHERE event_id = ? AND active = 1 ORDER BY CAST(price_usdt AS REAL) ASC, CAST(price_kgs AS REAL) ASC').all(e.id)
     .map(t => ({ ...t, available: t.supply == null ? null : Math.max(0, t.supply - (t.sold || 0) - pendingQty(t.id)) })),
 })
 const pendingQty = (ttId) =>
@@ -184,12 +189,53 @@ app.delete('/api/admin/events/:id', requireAdmin, (req, res) => {
 
 // ---------- contact ----------
 app.post('/api/contact', async (req, res) => {
-  const { name = '', contact = '', message = '', topic = 'general' } = req.body || {}
+  const { name = '', contact = '', message = '', topic = 'general', blockchain = '' } = req.body || {}
   if (!message.trim() && !contact.trim()) return res.status(400).json({ error: 'EMPTY' })
+  // Project submissions must be tied to a real Telegram login — the "Telegram" field on
+  // the form is free text a submitter could fake, so admins always get the authenticated
+  // identity too, straight from the session, never from client-supplied text.
+  if (topic === 'thermopolium-submission') {
+    if (!req.user) return res.status(401).json({ error: 'AUTH_REQUIRED' })
+    // One submission per blockchain per Telegram account — keyed off the authenticated
+    // user, not anything the form itself could be made to say.
+    if (blockchain) {
+      const dupe = db.prepare(
+        "SELECT id FROM contact_messages WHERE topic = 'thermopolium-submission' AND user_id = ? AND message LIKE ?"
+      ).get(req.user.id, `%Blockchain: ${blockchain}\n%`)
+      if (dupe) return res.status(409).json({ error: 'ALREADY_SUBMITTED' })
+    }
+  }
+  let text = String(message)
+  let project = req.body?.project
+  if (topic === 'thermopolium-submission' && project?.link) {
+    const looked = await resolveColosseum(project.link)
+    if (looked.status === 'ok') {
+      project = { ...project, colosseum: looked.project }
+      const c = looked.project
+      const team = (c.members || []).map(m => m.name || m.username).filter(Boolean).join(', ')
+      text += [
+        '',
+        `Pulled from Colosseum (${c.slug}):`,
+        [c.name, c.category, c.country].filter(Boolean).join(' · '),
+        (c.description || '').slice(0, 700),
+        `Repo: ${c.repoLink || '—'}`,
+        `Website: ${c.website || '—'}`,
+        `X: ${c.twitter ? '@' + c.twitter.replace(/^@/, '') : '—'}`,
+        team ? `Team: ${team}` : '',
+        c.hackathon?.name ? `Hackathon: ${c.hackathon.name}` : '',
+      ].filter(line => line !== '').join('\n')
+    } else {
+      text += `\n\nColosseum lookup: ${looked.status}`
+    }
+  }
   db.prepare('INSERT INTO contact_messages (user_id, name, contact, message, topic) VALUES (?,?,?,?,?)')
-    .run(req.user?.id ?? null, name, contact, message, topic)
+    .run(req.user?.id ?? null, name, contact, text, topic)
+  if (topic === 'thermopolium-submission' && project) createProject(req.user.id, project)
   const who = req.user ? `${req.user.first_name} ${req.user.username ? '@' + req.user.username : ''}`.trim() : name || 'anonymous'
-  await notifyAdmins(`📮 New "${topic}" message\n\nFrom: ${who}\nContact: ${contact || '—'}\n\n${message}`)
+  const authLine = req.user
+    ? `Authenticated Telegram: @${req.user.username || '—'} (id ${req.user.tg_id})`
+    : 'Authenticated Telegram: — (not logged in)'
+  await notifyAdmins(`📮 New "${topic}" message\n\nFrom: ${who}\n${authLine}\nContact (as entered): ${contact || '—'}\n\n${text}`)
   res.json({ ok: true })
 })
 
@@ -203,9 +249,11 @@ app.post('/api/checkout', (req, res) => {
     const qty = Math.max(1, Math.min(20, Number(b.quantity) || 1))
     if (tt.supply != null && tt.supply - (tt.sold || 0) - pendingQty(tt.id) < qty) return res.status(409).json({ error: 'SOLD_OUT' })
     const base = (Number(tt.price_usdt) * qty).toFixed(2)
+    const baseKgs = (Number(tt.price_kgs) * qty).toFixed(0)
     order = createOrder({
       kind: 'ticket', event_id: tt.event_id, ticket_type_id: tt.id, quantity: qty,
-      user: req.user, buyer_name: b.buyer_name || '', buyer_contact: b.buyer_contact || '', baseUsdt: base,
+      user: req.user, buyer_name: b.buyer_name || '', buyer_contact: b.buyer_contact || '',
+      baseUsdt: base, baseKgs,
     })
     if (order.status === 'paid') fulfillOrder(order) // free ticket
   } else if (b.kind === 'yoga_package') {
@@ -243,6 +291,10 @@ function orderView(o) {
       ton_address: process.env.TON_ADDRESS || '',
       alt_addresses: ALT_ADDRESSES,
       comment: o.comment_code,
+      // KGST is 1:1 with KGS, so the som price is the amount to send — no conversion.
+      kgst: Number(o.amount_kgs) > 0 ? { ...KGST, amount: o.amount_kgs } : null,
+      // Fallback contact for an order nobody can pay yet (no USDT price, no KGST wallet set).
+      bot: getBotUsername(),
     },
   }
 }
@@ -276,11 +328,12 @@ app.post('/api/orders/:id/submit-hash', async (req, res) => {
   if (!o) return res.status(404).json({ error: 'NOT_FOUND' })
   if (o.status !== 'pending' && o.status !== 'review') return res.status(409).json({ error: 'NOT_PENDING' })
   const chain = String(req.body?.chain || 'ton')
+  if (!['ton', 'trc20', 'sol', 'erc20', 'bsc'].includes(chain)) return res.status(400).json({ error: 'BAD_CHAIN' })
   const hash = String(req.body?.tx_hash || '').trim().slice(0, 120)
   if (!hash) return res.status(400).json({ error: 'NO_HASH' })
   db.prepare("UPDATE orders SET status = 'review', tx_hash = ?, chain = ? WHERE id = ?").run(hash, chain, o.id)
   await notifyAdmins(
-    `🔎 Payment review — order #${o.id} (${o.kind})\nAmount: ${o.amount} USDT on ${chain}\nHash: ${hash}\nBuyer: ${o.buyer_name || o.buyer_tg_id || 'guest'}`,
+    `🔎 Payment review — order #${o.id} (${o.kind})\nAmount: ${amountLabel(o)} on ${chain}\nHash: ${hash}\nBuyer: ${o.buyer_name || o.buyer_tg_id || 'guest'}`,
     { reply_markup: { inline_keyboard: [[{ text: '✅ Approve', callback_data: `ok:${o.id}` }, { text: '❌ Reject', callback_data: `no:${o.id}` }]] } })
   res.json({ ok: true, status: 'review' })
 })
@@ -358,73 +411,88 @@ app.post('/api/yoga/redeem', requireAuth, (req, res) => {
   res.json({ ok: true, classes_added: pkg.classes })
 })
 
-// ---------- broadcast messaging (admin only — bogidotcom) ----------
-app.post('/api/broadcast', requireAuth, async (req, res) => {
-  if (req.user.username?.toLowerCase() !== 'bogidotcom') return res.status(403).json({ error: 'UNAUTHORIZED' })
-  const { text = '', media_url = '', media_type = 'photo' } = req.body || {}
-  if (!text.trim()) return res.status(400).json({ error: 'EMPTY_MESSAGE' })
+// ---------- submissions ----------
+const submissionSelect = `
+  SELECT p.id, p.slug, p.name, p.blockchain, p.country, p.github, p.x, p.tg, p.link,
+         p.description, p.image, p.category, p.submitter, p.created_at, p.hidden,
+         u.username, u.first_name, u.last_name
+  FROM projects p LEFT JOIN users u ON u.id = p.user_id`
 
-  const users = db.prepare('SELECT tg_id FROM users WHERE tg_id IS NOT NULL').all()
-  if (!users.length) return res.status(404).json({ error: 'NO_USERS' })
-
-  let sent = 0, failed = 0
-  for (const user of users) {
-    try {
-      let result
-      if (media_url && media_type === 'photo') {
-        result = await tg('sendPhoto', {
-          chat_id: user.tg_id,
-          photo: media_url,
-          caption: text,
-          parse_mode: 'HTML'
-        })
-      } else if (media_url && media_type === 'video') {
-        result = await tg('sendVideo', {
-          chat_id: user.tg_id,
-          video: media_url,
-          caption: text,
-          parse_mode: 'HTML'
-        })
-      } else {
-        result = await tg('sendMessage', {
-          chat_id: user.tg_id,
-          text,
-          parse_mode: 'HTML',
-          disable_web_page_preview: true
-        })
-      }
-      if (result) sent++; else failed++
-    } catch (e) {
-      failed++
-    }
-    await new Promise(r => setTimeout(r, 30))
-  }
-  res.json({ sent, failed, total: users.length })
+app.get('/api/submissions', requireAuth, (req, res) => {
+  const admin = !!req.user.is_admin
+  const rows = admin
+    ? db.prepare(`${submissionSelect} ORDER BY p.id DESC`).all()
+    : db.prepare(`${submissionSelect} WHERE p.user_id = ? AND p.hidden = 0 ORDER BY p.id DESC`).all(req.user.id)
+  res.json({
+    scope: admin ? 'all' : 'mine',
+    submissions: rows.map(row => ({
+      id: row.id, slug: row.slug, name: row.name, blockchain: row.blockchain, country: row.country,
+      github: row.github || '', x: row.x || '', tg: row.tg || '', link: row.link || '',
+      description: row.description || '', image: row.image || '', category: row.category || '',
+      submitter: row.submitter || '', created_at: row.created_at,
+      ...(admin ? {
+        username: row.username || '', first_name: row.first_name || '', last_name: row.last_name || '',
+        hidden: !!row.hidden,
+      } : {}),
+    })),
+  })
 })
 
-// Helper to call Telegram API (same as in bot.js)
+// ---------- broadcast messaging (admin only — bogidotcom) ----------
+const BOT_TOKEN = process.env.BOT_TOKEN || ''
+
 async function tg(method, body = {}) {
-  if (!TOKEN) return null
+  if (!BOT_TOKEN) return { ok: false, description: 'NO_TOKEN' }
   try {
-    const res = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
+    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     })
     const data = await res.json()
-    return data.ok ? data.result : null
+    if (!data.ok) console.error(`[broadcast] ${method} failed:`, data.description)
+    return data.ok ? { ok: true } : { ok: false, description: data.description || 'TELEGRAM_ERROR' }
   } catch (e) {
     console.error(`[broadcast] ${method} error:`, e.message)
-    return null
+    return { ok: false, description: e.message }
   }
 }
 
+app.post('/api/broadcast', requireAuth, async (req, res) => {
+  if (req.user.username?.toLowerCase() !== 'bogidotcom') return res.status(403).json({ error: 'UNAUTHORIZED' })
+  const { text = '', media_url = '', media_type = 'photo' } = req.body || {}
+  if (!text.trim()) return res.status(400).json({ error: 'EMPTY_MESSAGE' })
+
+  const users = db.prepare("SELECT tg_id FROM users WHERE tg_id IS NOT NULL AND tg_id != ''").all()
+  if (!users.length) return res.status(404).json({ error: 'NO_USERS' })
+
+  let sent = 0, failed = 0
+  for (const user of users) {
+    const html = { chat_id: user.tg_id, parse_mode: 'HTML' }
+    const plain = { chat_id: user.tg_id }
+    const attempt = (mode) => {
+      if (media_url && media_type === 'photo') return tg('sendPhoto', { ...mode, photo: media_url, caption: text })
+      if (media_url && media_type === 'video') return tg('sendVideo', { ...mode, video: media_url, caption: text })
+      return tg('sendMessage', { ...mode, text, disable_web_page_preview: true })
+    }
+    let result = await attempt(html)
+    if (!result.ok && /parse entities|can't parse/i.test(result.description || '')) result = await attempt(plain)
+    if (result.ok) sent++
+    else failed++
+    await new Promise(r => setTimeout(r, 40))
+  }
+  res.json({ sent, failed, total: users.length })
+})
+
 // ---------- static (production build + tonconnect manifest) ----------
-if (fs.existsSync(DIST_DIR)) {
+// Production: nginx serves dist/ and only proxies /thermopolium/api/ here. Set SERVE_STATIC=1 to serve it from Node instead.
+if (process.env.SERVE_STATIC === '1' && fs.existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR))
   app.get(/^\/(?!api\/).*/, (_req, res) => res.sendFile(path.join(DIST_DIR, 'index.html')))
 }
 
-app.listen(PORT, () => console.log(`[hub] API on http://localhost:${PORT}`))
+startTherm(app, { notifyAdmins, requireAdmin })
+
+app.listen(PORT, () => console.log(`[thermopolium] API on http://localhost:${PORT}`))
 startWatcher(Number(process.env.WATCH_INTERVAL_MS || 20000))
 startBot()

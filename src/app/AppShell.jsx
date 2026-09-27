@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, Link } from 'react-router-dom'
-import { GraduationCap, Briefcase, BookOpen, CalendarDays, Leaf, Gift, Megaphone, Calendar } from 'lucide-react'
+import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
+import { CalendarDays, Megaphone, Calendar, Flame, MessagesSquare, PenLine } from 'lucide-react'
 import { ThemeFrame, useClock } from '../theme.jsx'
 import { useSession } from '../session.jsx'
 import { isTelegram, openTelegramLink } from '../telegram.js'
 import { Modal, GradBtn } from '../ui.jsx'
 import { useI18n, LangSwitcher } from '../i18n.jsx'
+import { media } from '../media.js'
 import Broadcast from './Broadcast.jsx'
 import EventsAdmin from './EventsAdmin.jsx'
+import { ComposeProvider, useCompose } from '../site/Compose.jsx'
 
-const TABS = [
-  { to: '/app/learn', icon: GraduationCap, key: 'learn' },
-  { to: '/app/work', icon: Briefcase, key: 'work' },
-  { to: '/app/blog', icon: BookOpen, key: 'blog' },
-  { to: '/app/events', icon: CalendarDays, key: 'events' },
+const NAV = [
+  { to: '/app/events', icon: CalendarDays, label: 'tabs.events' },
+  { to: '/app/therm', icon: Flame, label: 'nav.therm' },
+  { to: '/app/feed', icon: MessagesSquare, label: 'nav.feed' },
+  { icon: PenLine, label: 'compose.title', compose: true },
 ]
 
 export function LoginGate({ children, prompt }) {
@@ -57,14 +59,50 @@ export function LoginCard({ prompt }) {
   )
 }
 
+function Brand({ compact }) {
+  return (
+    <>
+      <img src={media('therm-logo.svg')} alt="" className={`${compact ? 'h-8 w-8' : 'h-9 w-9'} object-contain shrink-0`} />
+      <span className={`font-bold text-ink ${compact ? '' : 'text-xl'}`}>Thermopolium</span>
+    </>
+  )
+}
+
+function SideLink({ item, stacked }) {
+  const { t } = useI18n()
+  const compose = useCompose()
+  const icon = <item.icon className="w-5 h-5" />
+  const label = t(item.label)
+  if (item.compose) {
+    return (
+      <button type="button" onClick={compose.open}
+        className={`cursor-pointer ${stacked
+          ? 'flex flex-col items-center justify-center gap-1 py-2.5 px-1 text-[11px] text-center leading-tight text-ink-faint hover:text-ink'
+          : 'flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] text-ink-soft hover:bg-chip hover:text-ink text-left w-full'}`}>
+        {icon}{label}
+      </button>
+    )
+  }
+  return (
+    <NavLink to={item.to}
+      className={({ isActive }) => stacked
+        ? `flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] transition-colors ${isActive ? 'text-accent font-semibold' : 'text-ink-faint hover:text-ink'}`
+        : `flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] transition-colors ${isActive ? 'bg-chip text-accent font-semibold' : 'text-ink-soft hover:bg-chip hover:text-ink'}`}>
+      {icon}{label}
+    </NavLink>
+  )
+}
+
 export default function AppShell() {
   const { phase, hhmm } = useClock()
+  const { pathname } = useLocation()
   const { t } = useI18n()
   const { user, ready } = useSession()
   const [profileOpen, setProfileOpen] = useState(false)
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [eventsAdminOpen, setEventsAdminOpen] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
+  const wide = pathname === '/app/therm' || pathname === '/app/feed'
 
   useEffect(() => { if (user) setLoginOpen(false) }, [user])
 
@@ -73,32 +111,19 @@ export default function AppShell() {
     : <span className="w-9 h-9 rounded-full bg-chip border border-veil flex items-center justify-center text-sm font-bold text-accent">{(user?.first_name || '?')[0]}</span>
 
   return (
+    <ComposeProvider>
     <ThemeFrame>
       {/* Desktop sidebar (Facebook-style) */}
       <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 z-50 flex-col glass rounded-none border-y-0 border-l-0 p-5">
         <Link to="/" className="flex items-center gap-2.5 px-2 mb-1">
-          <Leaf className="w-7 h-7 text-accent" />
-          <span className="text-xl font-bold text-ink">AIHub</span>
+          <Brand />
         </Link>
         <p className="font-mono text-[11px] text-ink-faint px-2 mb-6">
           {hhmm} — {t(`greet.${phase}`)}
         </p>
 
         <nav className="flex flex-col gap-1">
-          {TABS.map((tab) => (
-            <NavLink key={tab.to} to={tab.to}
-              className={({ isActive }) =>
-                `flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] transition-colors ${isActive ? 'bg-chip text-accent font-semibold' : 'text-ink-soft hover:bg-chip hover:text-ink'}`}>
-              <tab.icon className="w-5 h-5" />
-              {t(`tabs.${tab.key}`)}
-            </NavLink>
-          ))}
-          <NavLink to="/app/gifts"
-            className={({ isActive }) =>
-              `flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] transition-colors ${isActive ? 'bg-chip text-accent font-semibold' : 'text-ink-soft hover:bg-chip hover:text-ink'}`}>
-            <Gift className="w-5 h-5" />
-            {t('tabs.gifts')}
-          </NavLink>
+          {NAV.map((item) => <SideLink key={item.label} item={item} />)}
         </nav>
 
         <div className="mt-auto space-y-3">
@@ -123,15 +148,13 @@ export default function AppShell() {
       <header className="md:hidden glass sticky top-0 z-50 rounded-none border-x-0 border-t-0">
         <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
-            <Leaf className="w-6 h-6 text-accent" />
-            <span className="font-bold text-ink">AIHub</span>
+            <Brand compact />
           </Link>
           <p className="font-mono text-[11px] text-ink-faint hidden sm:block">
             {hhmm} — {t(`greet.${phase}`)}{user ? `, ${user.first_name}` : ''}
           </p>
           <div className="flex items-center gap-2">
             <LangSwitcher />
-            <Link to="/app/gifts" aria-label="Gift cards" className="p-2 text-ink-soft hover:text-accent transition-colors"><Gift className="w-5 h-5" /></Link>
             {ready && (user ? (
               <button onClick={() => setProfileOpen(true)} className="cursor-pointer">
                 {avatar}
@@ -147,22 +170,17 @@ export default function AppShell() {
 
       {/* Content — offset right of the sidebar on desktop */}
       <div className="md:pl-64">
-        <main className="relative z-10 max-w-2xl mx-auto px-4 py-6 pb-28 md:py-10 md:pb-16 lg:max-w-3xl">
+        <main className={wide
+          ? 'page-sections relative z-10 pb-24 md:pb-0'
+          : 'relative z-10 max-w-2xl mx-auto px-4 py-6 pb-28 md:py-10 md:pb-16 lg:max-w-3xl'}>
           <Outlet />
         </main>
       </div>
 
       {/* Mobile bottom tab bar — pinned to the viewport bottom */}
       <nav className="md:hidden glass fixed bottom-0 inset-x-0 z-50 rounded-none border-x-0 border-b-0 tabbar">
-        <div className="max-w-2xl mx-auto grid grid-cols-4">
-          {TABS.map((tab) => (
-            <NavLink key={tab.to} to={tab.to}
-              className={({ isActive }) =>
-                `flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] transition-colors ${isActive ? 'text-accent font-semibold' : 'text-ink-faint hover:text-ink'}`}>
-              <tab.icon className="w-5 h-5" />
-              {t(`tabs.${tab.key}`)}
-            </NavLink>
-          ))}
+        <div className="max-w-2xl mx-auto grid" style={{ gridTemplateColumns: `repeat(${NAV.length}, minmax(0, 1fr))` }}>
+          {NAV.map((item) => <SideLink key={item.label} item={item} stacked />)}
         </div>
       </nav>
 
@@ -173,6 +191,7 @@ export default function AppShell() {
       {broadcastOpen && <Broadcast user={user} onClose={() => setBroadcastOpen(false)} />}
       {eventsAdminOpen && <EventsAdmin onClose={() => setEventsAdminOpen(false)} />}
     </ThemeFrame>
+    </ComposeProvider>
   )
 }
 
@@ -190,8 +209,7 @@ function ProfileModal({ open, onClose, user, onBroadcast, onEventsAdmin }) {
           {user.username && <p className="text-ink-faint text-sm font-mono">@{user.username}</p>}
         </div>
         <div className="grid gap-2 text-left">
-          <GradBtn as={Link} to="/app/events" onClick={onClose} className="!py-2.5 text-sm">{t('shell.myClasses')}</GradBtn>
-          <Link to="/app/gifts" onClick={onClose} className="bg-chip border border-veil rounded-lg px-4 py-3 text-ink text-sm hover:bg-veil transition-colors">{t('shell.myGifts')}</Link>
+          <GradBtn as={Link} to="/app/submissions" onClick={onClose} className="!py-2.5 text-sm">{user.is_admin ? t('shell.allSubmissions') : t('shell.myClasses')}</GradBtn>
           {isBogidotcom && (
             <>
               <button onClick={onEventsAdmin} className="bg-accent/10 border border-accent rounded-lg px-4 py-3 text-accent text-sm hover:bg-accent/20 transition-colors flex items-center gap-2 justify-center font-semibold cursor-pointer">

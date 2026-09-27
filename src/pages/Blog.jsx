@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Leaf } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { marked } from 'marked'
-import { ThemeFrame } from '../theme.jsx'
 import { Glass, Reveal, Spinner } from '../ui.jsx'
 import { api } from '../api.js'
-import { useI18n, LangSwitcher } from '../i18n.jsx'
+import { useI18n } from '../i18n.jsx'
 import { media } from '../media.js'
 
 const coverIsImage = (cover) => cover && (cover.startsWith('photos/') || cover.startsWith('/') || /^https?:\/\//i.test(cover))
@@ -70,38 +69,20 @@ export function BlogPostBody({ base = '/blog' }) {
   )
 }
 
-function BlogFrame({ children }) {
-  const { t } = useI18n()
-  return (
-    <ThemeFrame>
-      <nav className="glass sticky top-0 z-50 rounded-none border-x-0 border-t-0">
-        <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
-            <Leaf className="w-6 h-6 text-accent" />
-            <span className="text-lg font-bold text-ink">AIHub</span>
-            <span className="font-mono text-xs text-ink-faint ml-2">/ blog</span>
-          </Link>
-          <div className="flex items-center gap-3">
-            <LangSwitcher />
-            <Link to="/app" className="text-sm text-ink-soft hover:text-ink transition-colors">{t('nav.openApp')} →</Link>
-          </div>
-        </div>
-      </nav>
-      <main className="relative z-10 max-w-3xl mx-auto px-4 py-10 pb-24">{children}</main>
-    </ThemeFrame>
-  )
-}
-
 export function BlogPage() {
   const { t } = useI18n()
   return (
-    <BlogFrame>
+    <main className="relative z-10 max-w-3xl mx-auto px-4 py-16 pb-24">
       <h1 className="text-liquid text-4xl md:text-5xl font-bold tracking-tight mb-8">{t('blog.title')}</h1>
       <BlogList />
-    </BlogFrame>
+    </main>
   )
 }
 
 export function BlogPostPage() {
-  return <BlogFrame><BlogPostBody /></BlogFrame>
+  return (
+    <main className="relative z-10 max-w-3xl mx-auto px-4 py-16 pb-24">
+      <BlogPostBody />
+    </main>
+  )
 }

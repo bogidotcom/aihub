@@ -14,24 +14,43 @@ export const ALT_ADDRESSES = {
   erc20: process.env.ERC20_ADDRESS || '',
 }
 
+// KGST — the Kyrgyz som stablecoin on BNB Chain, pegged 1:1 to KGS.
+// Prices in KGS are therefore payable one-for-one in KGST, with no FX rate involved.
+// Settlement is manual (buyer submits the tx hash, admin approves) like the other non-TON chains.
+//   token_address — the KGST BEP-20 contract, used to identify the token in a wallet
+//   address       — OUR receiving wallet, set explicitly via KGST_ADDRESS.
+// No fallback on purpose: sending to the wrong address burns the payment, so an
+// unset KGST_ADDRESS hides the KGST option entirely rather than guessing a wallet.
+export const KGST = {
+  symbol: 'KGST',
+  chain: 'bsc',
+  chain_id: 56,
+  token_address: '0x94be0bbA8E1E303fE998c9360B57b826F1A4f828',
+  address: process.env.KGST_ADDRESS || '',
+  rate_kgs: 1,
+}
+
 // ---- exact decimal → raw BigInt (no floats) ----
 export function amountToRaw(amount, decimals = USDT_DECIMALS) {
   const [i, f = ''] = String(amount).split('.')
   return BigInt(i + f.padEnd(decimals, '0').slice(0, decimals))
 }
 
-export function createOrder({ kind, item = null, event_id = null, ticket_type_id = null, quantity = 1, user = null, buyer_name = '', buyer_contact = '', baseUsdt, meta = {} }) {
+export function createOrder({ kind, item = null, event_id = null, ticket_type_id = null, quantity = 1, user = null, buyer_name = '', buyer_contact = '', baseUsdt, baseKgs = 0, meta = {} }) {
   // Round amounts; orders are told apart by the transfer comment (comment_code),
   // with exact amount + time as fallback for payers who omit the comment.
   const amount = Number(baseUsdt) > 0 ? String(Number(baseUsdt)) : '0'
+  const amountKgs = Number(baseKgs) > 0 ? String(Number(baseKgs)) : '0'
   const code = 'HUB-' + genToken(4).toUpperCase().replace(/[^A-Z0-9]/g, 'X').slice(0, 6)
   const expires = new Date(Date.now() + ORDER_TTL_MS).toISOString()
+  // Free only when it costs nothing in either currency — a KGS-only ticket still has to be paid.
+  const free = Number(baseUsdt) <= 0 && Number(baseKgs) <= 0
   const r = db.prepare(`INSERT INTO orders
-    (kind, item, event_id, ticket_type_id, quantity, buyer_user_id, buyer_tg_id, buyer_name, buyer_contact, amount, comment_code, expires_at, meta, status)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    (kind, item, event_id, ticket_type_id, quantity, buyer_user_id, buyer_tg_id, buyer_name, buyer_contact, amount, amount_kgs, comment_code, expires_at, meta, status)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(kind, item, event_id, ticket_type_id, quantity, user?.id ?? null, user?.tg_id ?? null,
-      buyer_name || user?.first_name || '', buyer_contact, amount, code, expires, JSON.stringify(meta),
-      Number(baseUsdt) > 0 ? 'pending' : 'paid')
+      buyer_name || user?.first_name || '', buyer_contact, amount, amountKgs, code, expires, JSON.stringify(meta),
+      free ? 'paid' : 'pending')
   const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(Number(r.lastInsertRowid))
   return order
 }
@@ -59,7 +78,7 @@ export function fulfillOrder(order) {
       const links = tickets.map(t => base ? `${base}/ticket/${t.qr_token}` : t.qr_token).join('\n')
       notifyFn(order.buyer_tg_id, `🎉 Your ticket${tickets.length > 1 ? 's are' : ' is'} confirmed!\n\n${event?.title || 'Event'}\n${links}`)
     }
-    notifyAdminsFn(`💸 Ticket order #${order.id} paid — ${order.quantity}× for "${event?.title}" (${order.amount} USDT) by ${buyerLabel(order)}`)
+    notifyAdminsFn(`💸 Ticket order #${order.id} paid — ${order.quantity}× for "${event?.title}" (${amountLabel(order)}) by ${buyerLabel(order)}`)
   }
   if (order.kind === 'yoga_package') {
     const pkg = YOGA_PACKAGES[order.item]
@@ -71,7 +90,7 @@ export function fulfillOrder(order) {
       }
       if (order.buyer_tg_id) notifyFn(order.buyer_tg_id, `🧘 Your yoga package "${pkg.title}" is active — ${pkg.classes} class${pkg.classes > 1 ? 'es' : ''} added to your profile.`)
     }
-    notifyAdminsFn(`💸 Yoga package "${YOGA_PACKAGES[order.item]?.title || order.item}" paid (#${order.id}, ${order.amount} USDT) by ${buyerLabel(order)}`)
+    notifyAdminsFn(`💸 Yoga package "${YOGA_PACKAGES[order.item]?.title || order.item}" paid (#${order.id}, ${amountLabel(order)}) by ${buyerLabel(order)}`)
   }
   if (order.kind === 'giftcard') {
     let gift = db.prepare('SELECT * FROM giftcards WHERE order_id = ?').get(order.id)
@@ -82,9 +101,15 @@ export function fulfillOrder(order) {
       gift = db.prepare('SELECT * FROM giftcards WHERE order_id = ?').get(order.id)
     }
     if (order.buyer_tg_id) notifyFn(order.buyer_tg_id, `🎁 Your gift card is ready!\n\nCode: ${gift.code}\n\nThe recipient can redeem it in the app (Yoga → Redeem gift) or show it at the hub.`)
-    notifyAdminsFn(`💸 Gift card ${gift.code} (${meta.gift_kind}${meta.ref ? ' / ' + meta.ref : ''}) paid (#${order.id}, ${order.amount} USDT) by ${buyerLabel(order)}`)
+    notifyAdminsFn(`💸 Gift card ${gift.code} (${meta.gift_kind}${meta.ref ? ' / ' + meta.ref : ''}) paid (#${order.id}, ${amountLabel(order)}) by ${buyerLabel(order)}`)
   }
 }
+
+// Orders can be priced in USDT, in KGS (paid as KGST), or both.
+export const amountLabel = (o) => [
+  Number(o.amount) > 0 ? `${o.amount} USDT` : '',
+  Number(o.amount_kgs) > 0 ? `${o.amount_kgs} KGS/KGST` : '',
+].filter(Boolean).join(' or ') || 'free'
 
 const buyerLabel = (o) => {
   const u = o.buyer_user_id ? db.prepare('SELECT * FROM users WHERE id = ?').get(o.buyer_user_id) : null
@@ -156,6 +181,9 @@ export function startWatcher(intervalMs = 20000) {
         db.prepare("UPDATE orders SET status = 'expired' WHERE id = ?").run(o.id)
       } else live.push(o)
     }
+    // The watcher only settles USDT-on-TON. Orders priced solely in KGS (paid in KGST)
+    // carry amount '0' and must never be matched by an incoming TON transfer.
+    live = live.filter(o => Number(o.amount) > 0)
     if (!live.length || !TON_ADDRESS) return
     try {
       const transfers = await fetchTonUsdtTransfers()

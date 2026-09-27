@@ -1,56 +1,52 @@
 import { useState, useEffect } from 'react'
 
+// "Roman holiday": sunlit travertine, terracotta carpet, brass lamps, cypress green, a strip of sky.
+const DAY = {
+  '--ink': '#3a2416', '--ink-soft': '#5e4630', '--ink-faint': '#75604a',
+  '--accent': '#b5452d', '--accent-2': '#9c701d', '--accent-3': '#4d6a3a', '--on-accent': '#fffaf0',
+  '--surface': 'rgba(255,251,240,0.66)', '--veil': 'rgba(156,112,29,0.30)', '--chip': 'rgba(255,248,228,0.72)',
+  '--bird': '#5e4630', '--logo-filter': 'none',
+}
+
 export const THEMES = {
   morning: {
     greeting: 'Good Morning',
     vars: {
-      '--bg-a': '#fdf1d8', '--bg-b': '#fbdfe3', '--bg-c': '#e7dcf7',
-      '--ink': '#33265c', '--ink-soft': '#5c527f', '--ink-faint': '#8b81a8',
-      '--accent': '#f2765f', '--accent-2': '#6a4fc7', '--accent-3': '#2fb586',
-      '--surface': 'rgba(255,255,255,0.42)', '--veil': 'rgba(255,255,255,0.65)',
-      '--chip': 'rgba(255,255,255,0.5)',
-      '--glow-a': 'rgba(251,191,36,0.3)', '--glow-b': 'rgba(244,114,182,0.2)',
-      '--bird': '#5c527f', '--sun-core': '#ffce6d', '--sun-glow': 'rgba(255,196,86,0.55)',
-      '--star': '#fff7e0',
+      ...DAY,
+      '--bg-a': '#d3e5ee', '--bg-b': '#f5ecd5', '--bg-c': '#ead6ab',
+      '--glow-a': 'rgba(240,190,80,0.30)', '--glow-b': 'rgba(181,69,45,0.10)',
+      '--sun-core': '#f6c453', '--sun-glow': 'rgba(250,200,90,0.55)', '--star': '#fff7e0',
     },
   },
   afternoon: {
     greeting: 'Good Afternoon',
     vars: {
-      '--bg-a': '#fbe3d3', '--bg-b': '#f6d9e6', '--bg-c': '#ddd2f5',
-      '--ink': '#2e2354', '--ink-soft': '#5c527f', '--ink-faint': '#8b81a8',
-      '--accent': '#ef7080', '--accent-2': '#6a4fc7', '--accent-3': '#35c290',
-      '--surface': 'rgba(255,255,255,0.42)', '--veil': 'rgba(255,255,255,0.65)',
-      '--chip': 'rgba(255,255,255,0.5)',
-      '--glow-a': 'rgba(249,168,212,0.35)', '--glow-b': 'rgba(167,139,250,0.25)',
-      '--bird': '#5c527f', '--sun-core': '#ffd98a', '--sun-glow': 'rgba(255,209,110,0.5)',
-      '--star': '#fff7e0',
+      ...DAY,
+      '--bg-a': '#c6deeb', '--bg-b': '#f3e7c9', '--bg-c': '#e6cc9a',
+      '--glow-a': 'rgba(240,190,80,0.28)', '--glow-b': 'rgba(120,160,190,0.14)',
+      '--sun-core': '#fbd166', '--sun-glow': 'rgba(252,205,100,0.5)', '--star': '#fff7e0',
     },
   },
   evening: {
     greeting: 'Good Evening',
     vars: {
-      '--bg-a': '#f6c4a2', '--bg-b': '#dfa6c9', '--bg-c': '#8f7cc9',
-      '--ink': '#2c1f4e', '--ink-soft': '#4e4174', '--ink-faint': '#6f639a',
-      '--accent': '#e8556d', '--accent-2': '#5f3fb4', '--accent-3': '#d9930f',
-      '--surface': 'rgba(255,255,255,0.32)', '--veil': 'rgba(255,255,255,0.5)',
-      '--chip': 'rgba(255,255,255,0.38)',
-      '--glow-a': 'rgba(251,146,60,0.35)', '--glow-b': 'rgba(139,92,246,0.28)',
-      '--bird': '#4e4174', '--sun-core': '#ffab61', '--sun-glow': 'rgba(255,138,76,0.5)',
-      '--star': '#fff3d6',
+      ...DAY,
+      '--ink': '#38200f', '--ink-soft': '#5a3f28', '--ink-faint': '#72573f',
+      '--bg-a': '#f1cf9f', '--bg-b': '#eabd8c', '--bg-c': '#c99872',
+      '--surface': 'rgba(255,246,228,0.6)',
+      '--glow-a': 'rgba(240,150,60,0.34)', '--glow-b': 'rgba(181,69,45,0.16)',
+      '--sun-core': '#f39a45', '--sun-glow': 'rgba(240,130,60,0.5)', '--star': '#fff3d6',
     },
   },
   night: {
     greeting: 'Hello, Night Owl',
     vars: {
-      '--bg-a': '#020617', '--bg-b': '#0e1330', '--bg-c': '#1e1b4b',
-      '--ink': '#e7e9f4', '--ink-soft': '#a6adc8', '--ink-faint': '#767e9e',
-      '--accent': '#f087a6', '--accent-2': '#a78bfa', '--accent-3': '#67e8f9',
-      '--surface': 'rgba(255,255,255,0.06)', '--veil': 'rgba(255,255,255,0.12)',
-      '--chip': 'rgba(255,255,255,0.08)',
-      '--glow-a': 'rgba(167,139,250,0.14)', '--glow-b': 'rgba(103,232,249,0.1)',
-      '--bird': 'transparent', '--sun-core': 'transparent', '--sun-glow': 'transparent',
-      '--star': '#fef9c3',
+      '--bg-a': '#17110c', '--bg-b': '#241a12', '--bg-c': '#33231a',
+      '--ink': '#f3e6c9', '--ink-soft': '#d2bf9a', '--ink-faint': '#a48f6b',
+      '--accent': '#e0704f', '--accent-2': '#e3b04b', '--accent-3': '#9cbf7e', '--on-accent': '#2a1a0e',
+      '--surface': 'rgba(255,236,200,0.07)', '--veil': 'rgba(227,176,75,0.28)', '--chip': 'rgba(255,236,200,0.09)',
+      '--glow-a': 'rgba(227,176,75,0.12)', '--glow-b': 'rgba(224,112,79,0.10)',
+      '--bird': 'transparent', '--logo-filter': 'invert(1)', '--sun-core': 'transparent', '--sun-glow': 'transparent', '--star': '#fef3c7',
     },
   },
 }

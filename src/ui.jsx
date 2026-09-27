@@ -66,8 +66,8 @@ export function Collage({ photos }) {
 export function GradBtn({ children, className = '', as: As = 'button', ...props }) {
   return (
     <As
-      className={`inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold rounded-xl text-white transition-transform duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-accent/30 disabled:opacity-50 disabled:pointer-events-none cursor-pointer ${className}`}
-      style={{ background: 'linear-gradient(100deg, var(--accent), var(--accent-2))' }}
+      className={`inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold rounded-xl transition-transform duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-accent/30 disabled:opacity-50 disabled:pointer-events-none cursor-pointer ${className}`}
+      style={{ background: 'linear-gradient(100deg, var(--accent), var(--accent-2))', color: 'var(--on-accent, #fff)' }}
       {...props}
     >
       {children}
@@ -125,6 +125,11 @@ export function CopyRow({ label, value, mono = true }) {
     </button>
   )
 }
+
+// Multi-day events read better as a date range: the hour of day means nothing there and would shift by timezone.
+export const isMultiDay = (e) => e?.ends_at && new Date(e.ends_at) - new Date(e.starts_at) > 36 * 3600 * 1000
+export const fmtDay = (iso) => new Date(iso).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })
+export const fmtWhen = (e) => (isMultiDay(e) ? `${fmtDay(e.starts_at)} — ${fmtDay(e.ends_at)}` : fmtDate(e.starts_at) + (e.ends_at ? ` — ${fmtDate(e.ends_at)}` : ''))
 
 export const fmtDate = (iso) => {
   if (!iso) return ''

@@ -37,9 +37,9 @@ function mainMenuKeyboard() {
   const rows = []
   if (WEB_APP_URL) {
     if (WEB_APP_URL.startsWith('https://')) {
-      rows.push([{ text: '🌿 Open AIHub', web_app: { url: WEB_APP_URL } }])
+      rows.push([{ text: '🌿 Open Thermopolium', web_app: { url: WEB_APP_URL } }])
     } else if (WEB_APP_URL.startsWith('http://')) {
-      rows.push([{ text: '🌿 Open AIHub', url: WEB_APP_URL }])
+      rows.push([{ text: '🌿 Open Thermopolium', url: WEB_APP_URL }])
     }
   }
   return rows.length ? { inline_keyboard: rows } : undefined
@@ -121,7 +121,7 @@ export async function startBot() {
   console.log(`[bot] running as @${BOT_USERNAME}`)
   await tg('setMyCommands', {
     commands: [
-      { command: 'start', description: 'Open AIHub' },
+      { command: 'start', description: 'Open Thermopolium' },
       { command: 'mytickets', description: 'My tickets' },
       { command: 'id', description: 'Show my Telegram ID' },
     ],

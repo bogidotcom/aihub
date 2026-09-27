@@ -1,32 +1,35 @@
-# AIHub Kyrgyzstan
+# Thermopolium
 
-AI community hub for Kyrgyzstan. Lives at **iamai.kg**.
+The Thermopolium hackathon side track (next to the Colosseum World's Fair) and its community token **$THERM**. Lives at **https://iamai.kg/thermopolium/**. Built on the AIHub app (Telegram login, events/RSVP, admin alerts) — the routes and tables for the old hub pages are still there but hidden.
 
-Sister static sites live in `~/Desktop/kgs` (ChuiE at chuie.iamai.kg, KGST at kgst.iamai.kg). This app stays here and is linked from that tree as `apps/hub`.
-
-Landing + blog + Telegram Mini App (**@iamaihubbot**) + bot + broadcast messaging + USDT payments, in two packages:
-
-- **Frontend** (this dir): Vite + React 19 + Tailwind 4. Landing, blog, multi-language (EN/RU/KY/ZH), and the mini-app (also fully usable on the web).
-- **`server/`**: Node 24 (no build step) — Express + `node:sqlite`. API, Telegram bot (long polling), TON USDT payment watcher, broadcast messaging for @bogidotcom.
+- **Frontend** (this dir): Vite + React 19 + Tailwind 4, served under the `/thermopolium/` base path. Landing, `/therm` (token page), `/feed` (AI answers to $THERM memos), and the event/submission app under `/app`. EN/RU.
+- **`server/`**: Node 22+ (no build step) — Express + `node:sqlite`. API, Telegram bot, and the **$THERM service** (`therm.js`, `solana.js`, `dai.js`).
 
 ## Run
 
 ```bash
-# backend (port 3400) — also serves dist/ in production
+# backend (port 3460)
 cd server && npm i && npm run dev
 
-# frontend dev (port 5173, proxies /api → 3400)
+# frontend dev (port 5173) — open http://localhost:5173/thermopolium/ ; /thermopolium/api is proxied to :3460
 npm i && npm run dev
-
-# production: build once, then the server serves everything on :3400
-npm run build && cd server && npm start
 ```
+
+## $THERM: memo → AI answer
+
+A watcher polls the treasury's THERM token account on Solana. A transfer with a memo becomes a **signed DAI compute job** (memo = prompt, `1 THERM = 100,000,000 AI tokens`); the answer is stored and shown on `/feed`. Fee estimate: `POST /api/estimate` on the DAI node (older nodes without it get a conservative local estimate). Voting on projects is wallet-signed and weighted by live THERM balance. All of it is configured in `server/.env` (see `deploy/thermopolium.env.example`); with `THERM_MINT`/`THERM_TREASURY` empty the watcher stays idle and the rest of the site works.
+
+DAI wallet for jobs: `node dai-wallet.mjs generate|address|register|status` (in `server/`).
+
+## Deploy (hk → iamai.kg/thermopolium)
+
+`deploy/deploy.sh` is a dry run until you pass `--yes`; see the header of that script and `deploy/nginx-thermopolium.conf` for the one-time nginx include.
 
 ## Configure — `server/.env`
 
 - `BOT_TOKEN` — the bot token (set)
 - `ADMIN_USERNAMES` — Telegram usernames that become admins on /start (they receive contact-form messages, order notifications, and Approve/Reject buttons)
-- `WEB_APP_URL` — public https URL once deployed (used for bot buttons + ticket links; also update `public/tonconnect-manifest.json` to the same domain for @wallet payments to work)
+- `WEB_APP_URL` — `https://iamai.kg/thermopolium` (bot buttons + ticket links; `public/tonconnect-manifest.json` already points there)
 - Payment addresses: `TON_ADDRESS` (auto-verified), `TRC20_ADDRESS` / `SOL_ADDRESS` / `ERC20_ADDRESS` (manual verify via tx-hash + admin approve)
 - `TONCENTER_KEY` — optional, higher rate limits
 
@@ -61,5 +64,5 @@ Orders expire after 30 min. Free tickets are issued instantly.
 
 ## Telegram setup checklist (BotFather)
 
-- `/setmenubutton` → set the Mini App URL to `WEB_APP_URL` (or use the bot's inline "Open AIHub" button, already wired)
+- `/setmenubutton` → set the Mini App URL to `WEB_APP_URL` (or use the bot's inline "Open Thermopolium" button, already wired)
 - `/setdomain` → set the domain to enable the **Login Widget** on the website

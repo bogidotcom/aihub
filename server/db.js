@@ -4,7 +4,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-export const db = new DatabaseSync(path.join(__dirname, 'hub.db'))
+export const db = new DatabaseSync(process.env.DB_PATH || path.join(__dirname, 'hub.db'))
 
 db.exec(`
 PRAGMA journal_mode = WAL;
@@ -97,11 +97,64 @@ CREATE TABLE IF NOT EXISTS contact_messages (
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY, value TEXT
 );
+
+-- $THERM transfers that carry a memo: the memo is the prompt, the answer is a signed DAI job's result.
+CREATE TABLE IF NOT EXISTS therm_posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sig TEXT UNIQUE,                 -- Solana transaction signature
+  slot INTEGER, block_time INTEGER,
+  sender TEXT,                     -- wallet that paid (owner of the debited token account)
+  amount_raw TEXT, decimals INTEGER, therm REAL,
+  memo TEXT,
+  status TEXT,                     -- received | queued | computing | done | error | insufficient | no_memo
+  allowance_tokens INTEGER,        -- AI tokens the transfer pays for (therm x rate)
+  estimate_tokens INTEGER, estimate_source TEXT,  -- node | heuristic
+  budget_udai INTEGER,
+  job_id TEXT, answer TEXT, error TEXT, raw TEXT,
+  hidden INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS therm_posts_status ON therm_posts (status);
+
+-- Projects submitted through Thermopolium; the community ranks them with $THERM.
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT UNIQUE, user_id INTEGER,
+  name TEXT, blockchain TEXT, country TEXT,
+  github TEXT, x TEXT, tg TEXT, link TEXT,
+  hidden INTEGER DEFAULT 0,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One vote per Solana wallet; weight is that wallet's THERM balance, refreshed from chain.
+CREATE TABLE IF NOT EXISTS project_votes (
+  wallet TEXT PRIMARY KEY, project_id INTEGER,
+  weight REAL DEFAULT 0, signature TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at TEXT
+);
 `)
 
 // migration: local currency AMD → KGS (pre-2026-08 databases)
 for (const [table, from, to] of [['ticket_types', 'price_amd', 'price_kgs'], ['giftcards', 'amount_amd', 'amount_kgs']]) {
   try { db.exec(`ALTER TABLE ${table} RENAME COLUMN ${from} TO ${to}`) } catch { /* already renamed */ }
+}
+
+// migration: KGS-denominated orders, settled in KGST
+for (const [table, column, decl] of [
+  ['orders', 'amount_kgs', "TEXT DEFAULT '0'"],           // what a KGST payer owes (KGST is 1:1 with KGS)
+]) {
+  try { db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`) } catch { /* already added */ }
+}
+
+// migration: Colosseum page details stored with a submission
+for (const [column, decl] of [
+  ['description', 'TEXT'],
+  ['image', 'TEXT'],
+  ['category', 'TEXT'],
+  ['details', 'TEXT'],
+  ['submitter', 'TEXT'],
+]) {
+  try { db.exec(`ALTER TABLE projects ADD COLUMN ${column} ${decl}`) } catch { /* already added */ }
 }
 
 export const genToken = (n = 18) => crypto.randomBytes(n).toString('base64url')
