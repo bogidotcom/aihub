@@ -111,7 +111,8 @@ function EventRow({ event, onEdit, onDelete }) {
 function EventForm({ event, onSave, onCancel }) {
   const [formData, setFormData] = useState(event ? {
     title: event.title,
-    description: event.description,
+    description: event.descriptions?.en || event.description || '',
+    description_ru: event.descriptions?.ru || '',
     cover_image: event.cover_image,
     venue: event.venue,
     location: event.location,
@@ -122,6 +123,7 @@ function EventForm({ event, onSave, onCancel }) {
   } : {
     title: '',
     description: '',
+    description_ru: '',
     cover_image: '',
     venue: '',
     location: '',
@@ -168,6 +170,7 @@ function EventForm({ event, onSave, onCancel }) {
     try {
       const payload = {
         ...formData,
+        descriptions: { en: formData.description, ru: formData.description_ru || '' },
         starts_at: new Date(formData.starts_at).toISOString(),
         ends_at: formData.ends_at ? new Date(formData.ends_at).toISOString() : '',
       }
@@ -197,13 +200,23 @@ function EventForm({ event, onSave, onCancel }) {
           />
         </div>
         <div>
-          <label className="block text-xs uppercase tracking-widest text-ink-faint mb-2">Description</label>
+          <label className="block text-xs uppercase tracking-widest text-ink-faint mb-2">Description (English)</label>
           <textarea
             value={formData.description}
             onChange={(e) => handleChange('description', e.target.value)}
             placeholder="What's this event about?"
-            rows={3}
-            className="w-full px-3 py-2 bg-chip border border-veil rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/40 text-ink text-sm resize-none"
+            rows={6}
+            className="w-full px-3 py-2 bg-chip border border-veil rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/40 text-ink text-sm resize-y"
+          />
+        </div>
+        <div>
+          <label className="block text-xs uppercase tracking-widest text-ink-faint mb-2">Description (Russian, optional)</label>
+          <textarea
+            value={formData.description_ru}
+            onChange={(e) => handleChange('description_ru', e.target.value)}
+            placeholder="Описание на русском — необязательно"
+            rows={6}
+            className="w-full px-3 py-2 bg-chip border border-veil rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/40 text-ink text-sm resize-y"
           />
         </div>
         <div>

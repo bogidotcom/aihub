@@ -5,7 +5,8 @@ import { GradBtn } from '../ui.jsx'
 import { api } from '../api.js'
 import { media } from '../media.js'
 import { useI18n } from '../i18n.jsx'
-import { useThermConfig, byteLen, clampBytes, extractSignature } from './therm.js'
+import { useThermConfig, byteLen, clampBytes, extractSignature, rememberWallet } from './therm.js'
+import { useSession } from '../session.jsx'
 
 const ComposeCtx = createContext({ open: () => {} })
 export const useCompose = () => useContext(ComposeCtx)
@@ -17,6 +18,7 @@ const R = 11, C = 2 * Math.PI * R
 export default function Compose({ open, onClose }) {
   const { t } = useI18n()
   const nav = useNavigate()
+  const { user } = useSession()
   const cfg = useThermConfig()
   const max = cfg?.memoMaxBytes ?? 500
 
@@ -56,7 +58,21 @@ export default function Compose({ open, onClose }) {
     setTimeout(() => setCopied(''), 1400)
   }
   const sig = extractSignature(tx)
-  const seeAnswer = () => { onClose(); nav(`/app/feed?tx=${sig}`) }
+  const seeAnswer = () => {
+    if (sig && user) api('/therm/claim', { method: 'POST', body: { sig } }).catch(() => {})
+    onClose()
+    nav(`/app/feed?tx=${sig}`)
+  }
+  const pay = async () => {
+    const w = window.phantom?.solana || window.solflare || window.solana
+    if (w?.connect && user) {
+      try {
+        const { publicKey } = await w.connect()
+        rememberWallet(publicKey.toString())
+      } catch { /* the pay link still opens a wallet */ }
+    }
+    if (quote?.pay) window.location.href = quote.pay
+  }
 
   const Row = ({ id, label, value, mono = true }) => (
     <button onClick={() => copy(id, value)} className="w-full text-left bg-chip border border-veil rounded-lg px-4 py-3 hover:bg-veil transition-colors cursor-pointer">
@@ -129,7 +145,7 @@ export default function Compose({ open, onClose }) {
                   <Row id="memo" label={t('compose.memo')} value={text} mono={false} />
                 </div>
                 {quote?.pay && (
-                  <GradBtn as="a" href={quote.pay} className="w-full text-sm"><Wallet className="w-4 h-4" /> {t('compose.openWallet')}</GradBtn>
+                  <GradBtn onClick={pay} className="w-full text-sm"><Wallet className="w-4 h-4" /> {t('compose.openWallet')}</GradBtn>
                 )}
                 <div className="pt-2 border-t border-veil space-y-2">
                   <p className="font-mono text-[10px] uppercase tracking-widest text-ink-faint">{t('compose.sentIt')}</p>

@@ -157,6 +157,21 @@ for (const [column, decl] of [
   try { db.exec(`ALTER TABLE projects ADD COLUMN ${column} ${decl}`) } catch { /* already added */ }
 }
 
+try { db.exec('ALTER TABLE events ADD COLUMN i18n TEXT') } catch { /* already added */ }
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS wallet_links (
+  wallet TEXT PRIMARY KEY,
+  user_id INTEGER,
+  updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS post_claims (
+  sig TEXT PRIMARY KEY,
+  user_id INTEGER,
+  created_at TEXT
+);
+`)
+
 export const genToken = (n = 18) => crypto.randomBytes(n).toString('base64url')
 
 export function getSetting(key, fallback = null) {

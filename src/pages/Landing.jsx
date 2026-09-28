@@ -256,7 +256,10 @@ export default function Landing() {
             <p className="text-ink-soft max-w-xl mx-auto">{t('top.sub')}</p>
           </Reveal>
           <Reveal delay={100}><Top10 /></Reveal>
-          <p className="text-center"><Link to="/app/therm" className="text-accent font-semibold">{t('top.aboutTherm')} →</Link></p>
+          <p className="text-center flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+            <Link to="/app/projects" className="text-accent font-semibold">{t('top.all')} →</Link>
+            <Link to="/app/therm" className="text-accent font-semibold">{t('top.aboutTherm')} →</Link>
+          </p>
         </div>
       </section>
 

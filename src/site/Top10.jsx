@@ -5,19 +5,20 @@ import { Glass, GradBtn, Spinner } from '../ui.jsx'
 import { api } from '../api.js'
 import { useI18n } from '../i18n.jsx'
 import { ROMAN } from './parts.jsx'
-import { fmtTherm } from './therm.js'
+import { fmtTherm, rememberWallet } from './therm.js'
 
 // Phantom, Solflare, or any wallet that injects a Solana provider.
 const wallet = () => window.phantom?.solana || window.solflare || window.solana || null
 
-export default function Top10() {
+export function ProjectBoard({ mode = 'top' }) {
   const { t } = useI18n()
   const [data, setData] = useState(null)
   const [busy, setBusy] = useState('')
   const [msg, setMsg] = useState('')
+  const all = mode === 'all'
 
-  const load = () => api('/therm/top').then(setData).catch(() => setData({ projects: [], votingOpen: false }))
-  useEffect(() => { load() }, [])
+  const load = () => api(all ? '/therm/projects' : '/therm/top').then(setData).catch(() => setData({ projects: [], votingOpen: false }))
+  useEffect(() => { load() }, [all])
 
   const vote = async (slug) => {
     setMsg('')
@@ -26,6 +27,7 @@ export default function Top10() {
     setBusy(slug)
     try {
       const { publicKey } = await w.connect()
+      rememberWallet(publicKey.toString())
       const message = `Thermopolium vote\nproject: ${slug}\nissued: ${new Date().toISOString()}`
       const signed = await w.signMessage(new TextEncoder().encode(message), 'utf8')
       await api('/therm/vote', { method: 'POST', body: { slug, wallet: publicKey.toString(), message, signature: Array.from(signed.signature) } })
@@ -52,7 +54,7 @@ export default function Top10() {
     <div className="space-y-3">
       {data.projects.map((p, i) => (
         <Glass key={p.slug} className="rounded-xl px-4 sm:px-6 py-4 flex items-center gap-4">
-          <span className="font-display text-2xl sm:text-3xl text-accent-2 w-12 text-center shrink-0">{ROMAN[i]}</span>
+          <span className="font-display text-2xl sm:text-3xl text-accent-2 w-12 text-center shrink-0">{all ? String(p.rank || i + 1) : (ROMAN[i] || i + 1)}</span>
           {p.image && <img src={p.image} alt="" className="w-12 h-12 rounded-lg object-cover border border-veil shrink-0 hidden sm:block" />}
           <div className="min-w-0 flex-1">
             <a href={p.link} target="_blank" rel="noreferrer" className="font-display font-bold text-ink hover:text-accent inline-flex items-center gap-1.5 max-w-full">
@@ -70,7 +72,7 @@ export default function Top10() {
             <p className="font-mono text-[10px] uppercase tracking-widest text-ink-faint">$THERM · {p.voters} {t('top.voters')}</p>
           </div>
           <GradBtn onClick={() => vote(p.slug)} disabled={busy === p.slug} className="!px-3 sm:!px-4 !py-2 text-xs shrink-0">
-            <Vote className="w-4 h-4" /> <span className="hidden sm:inline">{t('top.vote')}</span>
+            <Vote className="w-4 h-4" /> <span className={all ? '' : 'hidden sm:inline'}>{t('top.vote')}</span>
           </GradBtn>
         </Glass>
       ))}
@@ -78,4 +80,8 @@ export default function Top10() {
       {!data.votingOpen && <p className="text-center text-xs text-ink-faint">{t('top.soon')}</p>}
     </div>
   )
+}
+
+export default function Top10() {
+  return <ProjectBoard mode="top" />
 }

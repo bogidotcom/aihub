@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
-import { CalendarDays, Megaphone, Calendar, Flame, MessagesSquare, PenLine } from 'lucide-react'
+import { CalendarDays, Megaphone, Calendar, Flame, MessagesSquare, PenLine, LayoutGrid } from 'lucide-react'
 import { ThemeFrame, useClock } from '../theme.jsx'
 import { useSession } from '../session.jsx'
 import { isTelegram, openTelegramLink } from '../telegram.js'
@@ -13,6 +13,7 @@ import { ComposeProvider, useCompose } from '../site/Compose.jsx'
 
 const NAV = [
   { to: '/app/events', icon: CalendarDays, label: 'tabs.events' },
+  { to: '/app/projects', icon: LayoutGrid, label: 'nav.projects' },
   { to: '/app/therm', icon: Flame, label: 'nav.therm' },
   { to: '/app/feed', icon: MessagesSquare, label: 'nav.feed' },
   { icon: PenLine, label: 'compose.title', compose: true },

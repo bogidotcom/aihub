@@ -3,13 +3,15 @@ import { createContext, useContext, useState, useCallback } from 'react'
 const DICTS = {
   en: {
     greet: { morning: 'Good Morning', afternoon: 'Good Afternoon', evening: 'Good Evening', night: 'Hello, Night Owl' },
-    nav: { home: 'Home', ideas: 'Ideas', rules: 'Rules', event: 'Event', contact: 'Contact', submit: 'Submit a project', therm: '$THERM', feed: 'Feed', blog: 'Blog' },
+    nav: { home: 'Home', ideas: 'Ideas', rules: 'Rules', event: 'Event', contact: 'Contact', submit: 'Submit a project', therm: '$THERM', feed: 'Feed', blog: 'Blog', projects: 'Projects' },
     top: {
       label: 'community', title: 'Top 10 supported projects',
       sub: 'Colosseum projects submitted via Thermopolium, ranked by the community with $THERM — more tokens, more vote.',
       subTherm: 'Ranked by the $THERM held by the wallets backing each project. The community decides the winners.',
       empty: 'No projects yet. The first Thermopolium submissions will appear here — and the community picks the winners with $THERM.',
-      vote: 'Back it', voters: 'backers', voted: 'Vote counted — thank you!',
+      vote: 'Upvote', voters: 'backers', voted: 'Vote counted — thank you!',
+      directory: 'Projects', directorySub: 'Every project submitted to Thermopolium. Upvote with the $THERM in your wallet.',
+      all: 'All projects',
       noWallet: 'Open this page in a Solana wallet (Phantom, Solflare…) to vote.',
       noTherm: 'This wallet holds no $THERM — hold some to vote.',
       soon: 'Voting opens when $THERM launches.', failed: 'Could not record the vote — try again.',
@@ -35,7 +37,7 @@ const DICTS = {
       unit2: 'It equals 100 million AI tokens — a question-and-answer cycle with AI, 100,000 times.',
       unitClose: 'Energy in, intelligence out.',
       roadmapTitle: 'Roadmap',
-      roadmap: ['Idea', 'MVP', 'First Thermopolium featuring World\'s Fair', 'Live stream with Cyrene', 'Colosseum application', 'Token launch', 'Offline meetups & workshops', 'TBA…'],
+      roadmap: ['Idea', 'MVP', 'First Thermopolium featuring World\'s Fair', 'Live stream with Cyrene', 'Token launch', 'Colosseum application', 'Offline meetups & workshops', 'TBA…'],
       state: { done: 'done', live: 'happening now', next: 'next', tba: 'to be announced' },
     },
     feed: {
@@ -245,13 +247,15 @@ const DICTS = {
 
   ru: {
     greet: { morning: 'Доброе утро', afternoon: 'Добрый день', evening: 'Добрый вечер', night: 'Привет, полуночник' },
-    nav: { home: 'Главная', ideas: 'Идеи', rules: 'Правила', event: 'Событие', contact: 'Контакты', submit: 'Подать проект', therm: '$THERM', feed: 'Лента', blog: 'Блог' },
+    nav: { home: 'Главная', ideas: 'Идеи', rules: 'Правила', event: 'Событие', contact: 'Контакты', submit: 'Подать проект', therm: '$THERM', feed: 'Лента', blog: 'Блог', projects: 'Проекты' },
     top: {
       label: 'сообщество', title: 'Топ-10 поддержанных проектов',
       sub: 'Проекты Colosseum, поданные через Thermopolium, ранжирует сообщество с помощью $THERM — больше токенов, больше голос.',
       subTherm: 'Рейтинг по $THERM на кошельках, поддержавших проект. Победителей выбирает сообщество.',
       empty: 'Пока нет проектов. Первые заявки Thermopolium появятся здесь — а победителей выберет сообщество с помощью $THERM.',
-      vote: 'Поддержать', voters: 'сторонников', voted: 'Голос учтён — спасибо!',
+      vote: 'Голос', voters: 'сторонников', voted: 'Голос учтён — спасибо!',
+      directory: 'Проекты', directorySub: 'Все проекты, поданные в Thermopolium. Голос весит столько $THERM, сколько на кошельке.',
+      all: 'Все проекты',
       noWallet: 'Откройте страницу в Solana-кошельке (Phantom, Solflare…), чтобы голосовать.',
       noTherm: 'На этом кошельке нет $THERM — держите токены, чтобы голосовать.',
       soon: 'Голосование откроется после запуска $THERM.', failed: 'Не удалось записать голос — попробуйте ещё раз.',
@@ -277,7 +281,7 @@ const DICTS = {
       unit2: 'Это 100 миллионов AI-токенов — 100 000 циклов «вопрос — ответ» с AI.',
       unitClose: 'Энергия на входе — интеллект на выходе.',
       roadmapTitle: 'Дорожная карта',
-      roadmap: ['Идея', 'MVP', 'Первый Thermopolium на World\'s Fair', 'Прямой эфир с Cyrene', 'Заявка в Colosseum', 'Запуск токена', 'Офлайн-митапы и воркшопы', 'TBA…'],
+      roadmap: ['Идея', 'MVP', 'Первый Thermopolium на World\'s Fair', 'Прямой эфир с Cyrene', 'Запуск токена', 'Заявка в Colosseum', 'Офлайн-митапы и воркшопы', 'TBA…'],
       state: { done: 'готово', live: 'идёт сейчас', next: 'дальше', tba: 'будет объявлено' },
     },
     feed: {

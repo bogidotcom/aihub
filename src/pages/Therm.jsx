@@ -58,7 +58,7 @@ export default function Therm() {
             </ul>
             <div className="flex flex-col sm:flex-row gap-4 pt-2">
               <GradBtn onClick={compose.open} className="group px-8 py-4">{t('therm.ctaTalk')} <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" /></GradBtn>
-              <a href="#top" className="inline-flex items-center justify-center gap-2 px-8 py-4 font-semibold rounded-xl text-ink border border-veil hover:bg-chip transition-colors">{t('therm.ctaVote')}</a>
+              <Link to="/app/projects" className="inline-flex items-center justify-center gap-2 px-8 py-4 font-semibold rounded-xl text-ink border border-veil hover:bg-chip transition-colors">{t('therm.ctaVote')}</Link>
             </div>
           </Reveal>
 
@@ -108,7 +108,7 @@ export default function Therm() {
                     <li key={pt} className="flex items-start gap-3 text-ink-soft"><span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2.5" />{pt}</li>
                   ))}
                 </ul>
-                {i === 0 && <GradBtn as="a" href="#top" className="group px-7 py-3.5">{t('therm.ctaVote')} <ArrowRight className="w-4 h-4" /></GradBtn>}
+                {i === 0 && <GradBtn as={Link} to="/app/projects" className="group px-7 py-3.5">{t('therm.ctaVote')} <ArrowRight className="w-4 h-4" /></GradBtn>}
                 {i === 1 && (
                   <div className="flex flex-wrap gap-3">
                     <GradBtn onClick={compose.open} className="px-7 py-3.5">{t('therm.ctaTalk')}</GradBtn>

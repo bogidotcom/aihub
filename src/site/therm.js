@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../api.js'
+import { api, getToken } from '../api.js'
 
 // One shared fetch of the public token config (mint, treasury, rate, memo cap).
 let configPromise
@@ -37,3 +37,9 @@ export const extractSignature = (s) => (s.match(/[1-9A-HJ-NP-Za-km-z]{80,90}/) |
 export const fmtTherm = (n) => (n >= 1000 ? n.toLocaleString(undefined, { maximumFractionDigits: 0 }) : String(Number(n.toPrecision(4))))
 
 export const hueOf = (s) => { let h = 0; for (const c of s || '') h = (h * 31 + c.charCodeAt(0)) % 360; return h }
+
+// Tie a connected Solana wallet to the logged-in Telegram account so the feed can show their photo.
+export function rememberWallet(address) {
+  if (!address || !getToken()) return
+  api('/me/wallet', { method: 'POST', body: { wallet: address } }).catch(() => {})
+}

@@ -1,12 +1,18 @@
+import { Link } from 'react-router-dom'
 import { media } from '../media.js'
 
 export function Logo({ className = '', textClassName = 'text-xl', to = '#home' }) {
-  return (
-    <a href={to} className={`flex items-center gap-2.5 ${className}`}>
+  const classNames = `flex items-center gap-2.5 ${className}`
+  const mark = (
+    <>
       <img src={media('therm-logo.svg')} alt="Thermopolium" className="h-10 w-10 object-contain" />
       <span className={`font-bold text-ink ${textClassName}`}>Thermopolium</span>
-    </a>
+    </>
   )
+  if (to.startsWith('#')) return <a href={to} className={classNames}>{mark}</a>
+  const home = to === '/' ? import.meta.env.BASE_URL : null
+  if (home) return <a href={home} className={classNames}>{mark}</a>
+  return <Link to={to} className={classNames}>{mark}</Link>
 }
 
 // A soft, warm-tinted photo behind a section that fades out at both edges,

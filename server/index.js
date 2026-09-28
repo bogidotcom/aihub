@@ -58,6 +58,15 @@ app.post('/api/auth/widget', (req, res) => {
 
 app.get('/api/me', requireAuth, (req, res) => res.json({ user: publicUser(req.user) }))
 
+app.post('/api/me/wallet', requireAuth, (req, res) => {
+  const wallet = String(req.body?.wallet || '').trim()
+  if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) return res.status(400).json({ error: 'BAD_WALLET' })
+  db.prepare(`INSERT INTO wallet_links (wallet, user_id, updated_at) VALUES (?,?,?)
+    ON CONFLICT(wallet) DO UPDATE SET user_id = excluded.user_id, updated_at = excluded.updated_at`)
+    .run(wallet, req.user.id, new Date().toISOString())
+  res.json({ ok: true })
+})
+
 // ---------- blog ----------
 function loadPostContent(filename) {
   const raw = fs.readFileSync(path.join(BLOG_DIR, filename), 'utf8')
@@ -114,12 +123,40 @@ app.get('/api/blog/:slug', (req, res) => {
 app.get('/api/colosseum/preview', previewHandler)
 
 // ---------- events ----------
-const hydrateEvent = (e) => ({
-  ...e,
-  when: new Date(e.ends_at || e.starts_at).getTime() >= Date.now() ? 'upcoming' : 'past',
-  ticket_types: db.prepare('SELECT * FROM ticket_types WHERE event_id = ? AND active = 1 ORDER BY CAST(price_usdt AS REAL) ASC, CAST(price_kgs AS REAL) ASC').all(e.id)
-    .map(t => ({ ...t, available: t.supply == null ? null : Math.max(0, t.supply - (t.sold || 0) - pendingQty(t.id)) })),
-})
+function eventCopy(e) {
+  let pack = {}
+  try { pack = JSON.parse(e.i18n || '{}') || {} } catch { pack = {} }
+  if (!pack.en && !pack.ru && typeof e.description === 'string' && e.description.includes('\n—\n')) {
+    const [ru, ...rest] = e.description.split(/\n—\n/)
+    const en = rest.join('\n—\n').trim()
+    if (en && ru.trim()) pack = { ru: ru.trim(), en }
+  }
+  return {
+    en: String(pack.en || '').trim(),
+    ru: String(pack.ru || '').trim(),
+  }
+}
+
+const hydrateEvent = (e) => {
+  const copy = eventCopy(e)
+  return {
+    ...e,
+    descriptions: copy,
+    description: copy.en || copy.ru || e.description,
+    when: new Date(e.ends_at || e.starts_at).getTime() >= Date.now() ? 'upcoming' : 'past',
+    ticket_types: db.prepare('SELECT * FROM ticket_types WHERE event_id = ? AND active = 1 ORDER BY CAST(price_usdt AS REAL) ASC, CAST(price_kgs AS REAL) ASC').all(e.id)
+      .map(t => ({ ...t, available: t.supply == null ? null : Math.max(0, t.supply - (t.sold || 0) - pendingQty(t.id)) })),
+  }
+}
+
+const saveEventCopy = (body, previous) => {
+  const incoming = body?.descriptions
+  const prev = eventCopy(previous || {})
+  const en = incoming ? String(incoming.en ?? '') : (body?.description ?? prev.en)
+  const ru = incoming ? String(incoming.ru ?? '') : prev.ru
+  const descriptions = { en: String(en || '').trim(), ru: String(ru || '').trim() }
+  return { description: descriptions.en || descriptions.ru || String(body?.description || previous?.description || ''), i18n: JSON.stringify(descriptions) }
+}
 const pendingQty = (ttId) =>
   db.prepare("SELECT COALESCE(SUM(quantity),0) AS n FROM orders WHERE ticket_type_id = ? AND status IN ('pending','review')").get(ttId).n
 
@@ -141,8 +178,9 @@ app.get('/api/events/:slug', (req, res) => {
 app.post('/api/admin/events', requireAdmin, (req, res) => {
   const b = req.body || {}
   const slug = b.slug || (b.title || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + genToken(3).toLowerCase()
-  const r = db.prepare('INSERT INTO events (title, slug, description, cover_image, venue, location, starts_at, ends_at, status) VALUES (?,?,?,?,?,?,?,?,?)')
-    .run(b.title || 'Untitled', slug, b.description || '', b.cover_image || '', b.venue || '', b.location || '', b.starts_at || new Date().toISOString(), b.ends_at || '', b.status || 'published')
+  const copy = saveEventCopy(b, {})
+  const r = db.prepare('INSERT INTO events (title, slug, description, cover_image, venue, location, starts_at, ends_at, status, i18n) VALUES (?,?,?,?,?,?,?,?,?,?)')
+    .run(b.title || 'Untitled', slug, copy.description, b.cover_image || '', b.venue || '', b.location || '', b.starts_at || new Date().toISOString(), b.ends_at || '', b.status || 'published', copy.i18n)
   const eventId = Number(r.lastInsertRowid)
   for (const t of b.ticket_types || []) {
     db.prepare('INSERT INTO ticket_types (event_id, name, description, price_usdt, price_kgs, supply) VALUES (?,?,?,?,?,?)')
@@ -157,9 +195,10 @@ app.put('/api/admin/events/:id', requireAdmin, (req, res) => {
   if (!e) return res.status(404).json({ error: 'NOT_FOUND' })
 
   const b = req.body || {}
-  db.prepare('UPDATE events SET title = ?, description = ?, cover_image = ?, venue = ?, location = ?, starts_at = ?, ends_at = ?, status = ? WHERE id = ?')
-    .run(b.title || e.title, b.description ?? e.description, b.cover_image ?? e.cover_image, b.venue ?? e.venue,
-         b.location ?? e.location, b.starts_at || e.starts_at, b.ends_at ?? e.ends_at, b.status || e.status, eventId)
+  const copy = saveEventCopy(b, e)
+  db.prepare('UPDATE events SET title = ?, description = ?, cover_image = ?, venue = ?, location = ?, starts_at = ?, ends_at = ?, status = ?, i18n = ? WHERE id = ?')
+    .run(b.title || e.title, copy.description, b.cover_image ?? e.cover_image, b.venue ?? e.venue,
+         b.location ?? e.location, b.starts_at || e.starts_at, b.ends_at ?? e.ends_at, b.status || e.status, copy.i18n, eventId)
 
   // Update ticket types
   if (Array.isArray(b.ticket_types)) {

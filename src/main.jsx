@@ -19,6 +19,7 @@ import Learn from './app/Learn.jsx'
 import Work from './app/Work.jsx'
 import Gifts from './app/Gifts.jsx'
 import Submissions from './app/Submissions.jsx'
+import Projects from './app/Projects.jsx'
 
 import { useI18n } from './i18n.jsx'
 
@@ -51,6 +52,7 @@ createRoot(document.getElementById('root')).render(
             </Route>
             <Route path="/therm" element={<KeepHash to="/app/therm" />} />
             <Route path="/feed" element={<KeepHash to="/app/feed" />} />
+            <Route path="/projects" element={<KeepHash to="/app/projects" />} />
             <Route path="/ticket/:qr" element={<TicketView />} />
             <Route path="/app" element={<AppShell />}>
               <Route index element={<Navigate to="/app/events" replace />} />
@@ -60,6 +62,7 @@ createRoot(document.getElementById('root')).render(
               <Route path="blog/:slug" element={<BlogPostBody base="/app/blog" />} />
               <Route path="therm" element={<Therm />} />
               <Route path="feed" element={<Feed />} />
+              <Route path="projects" element={<Projects />} />
               <Route path="events" element={<EventsTab />} />
               <Route path="submissions" element={<Submissions />} />
               <Route path="event/:slug" element={<EventDetail />} />

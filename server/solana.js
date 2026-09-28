@@ -45,6 +45,49 @@ export function b58decode(str) {
   return Buffer.concat([Buffer.alloc(zeros), bytes])
 }
 
+const ED_P = (1n << 255n) - 19n
+const mod = (a, m) => { const r = a % m; return r < 0n ? r + m : r }
+function modPow(base, exp, m) {
+  let r = 1n
+  let b = mod(base, m)
+  let e = exp
+  while (e > 0n) {
+    if (e & 1n) r = mod(r * b, m)
+    b = mod(b * b, m)
+    e >>= 1n
+  }
+  return r
+}
+const ED_D = mod(BigInt(-121665) * modPow(121666n, ED_P - 2n, ED_P), ED_P)
+function le32(buf) {
+  let n = 0n
+  for (let i = 0; i < 32; i++) n |= BigInt(buf[i]) << (8n * BigInt(i))
+  return n
+}
+// A Solana address is a public key only when this is true. PDAs are the ones that fail it.
+export function isOnCurve(bytes) {
+  const raw = Buffer.from(bytes)
+  if (raw.length !== 32) return false
+  let y = le32(raw)
+  const sign = y >> 255n
+  y &= (1n << 255n) - 1n
+  if (y >= ED_P) return false
+  const y2 = mod(y * y, ED_P)
+  const x2 = mod(mod(y2 - 1n, ED_P) * modPow(mod(ED_D * y2 + 1n, ED_P), ED_P - 2n, ED_P), ED_P)
+  if (x2 === 0n) return sign === 0n
+  return modPow(x2, (ED_P - 1n) / 2n, ED_P) === 1n
+}
+
+const PDA_MARK = Buffer.from('ProgramDerivedAddress')
+export function findProgramAddress(seeds, programId) {
+  const program = Buffer.from(programId)
+  for (let bump = 255; bump >= 0; bump--) {
+    const hash = crypto.createHash('sha256').update(Buffer.concat([...seeds.map(s => Buffer.from(s)), Buffer.from([bump]), program, PDA_MARK])).digest()
+    if (!isOnCurve(hash)) return hash
+  }
+  throw new Error('no program address')
+}
+
 export function b58encode(buf) {
   let n = BigInt('0x' + (Buffer.from(buf).toString('hex') || '0'))
   let out = ''
@@ -78,6 +121,97 @@ export async function tokenAccountsOf(owner, mint) {
     amount: BigInt(v.account.data.parsed.info.tokenAmount.amount),
     decimals: v.account.data.parsed.info.tokenAmount.decimals,
   }))
+}
+
+const TOKEN_PROGRAM = () => b58decode('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+const ATA_PROGRAM = () => b58decode('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
+const MEMO_PROGRAM = () => b58decode('MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr')
+const SYSTEM_PROGRAM = () => Buffer.alloc(32)
+
+export function associatedTokenAddress(owner, mint) {
+  return findProgramAddress([b58decode(owner), TOKEN_PROGRAM(), b58decode(mint)], ATA_PROGRAM())
+}
+
+export async function mintDecimals(mint) {
+  const info = await rpc('getAccountInfo', [mint, { encoding: 'base64', commitment: 'confirmed' }])
+  const data = info?.value?.data?.[0]
+  if (!data) throw new Error('mint account missing')
+  return Buffer.from(data, 'base64')[44]
+}
+
+function compactU16(n) {
+  const out = []
+  let v = n
+  while (true) {
+    let b = v & 0x7f
+    v >>= 7
+    if (v) { b |= 0x80; out.push(b) } else { out.push(b); break }
+  }
+  return Buffer.from(out)
+}
+
+// Legacy transaction the wallet can sign. One signature slot, left empty.
+export function compileLegacyTransaction({ payer, writable = [], readonly = [], blockhash, instructions }) {
+  const keys = [Buffer.from(payer), ...writable.map(k => Buffer.from(k)), ...readonly.map(k => Buffer.from(k))]
+  const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i])
+  const indexOf = (buf) => {
+    const i = keys.findIndex(k => same(k, buf))
+    if (i < 0) throw new Error('instruction account missing from the message')
+    return i
+  }
+  const ixs = instructions.map(ix => {
+    const accounts = Buffer.from(ix.accounts.map(indexOf))
+    return Buffer.concat([
+      Buffer.from([indexOf(ix.programId)]),
+      compactU16(accounts.length),
+      accounts,
+      compactU16(ix.data.length),
+      ix.data,
+    ])
+  })
+  const message = Buffer.concat([
+    Buffer.from([1, 0, readonly.length]),
+    compactU16(keys.length),
+    Buffer.concat(keys),
+    b58decode(blockhash),
+    compactU16(ixs.length),
+    ...ixs,
+  ])
+  return Buffer.concat([compactU16(1), Buffer.alloc(64), message]).toString('base64')
+}
+
+/**
+ * Unsigned USDC/$THERM payment: create the treasury token account if needed,
+ * transferChecked the exact amount, and attach the prompt as a memo.
+ */
+export async function buildTokenPayment({ owner, treasury, mint, amountRaw, decimals, memo }) {
+  const payer = b58decode(owner)
+  const mintKey = b58decode(mint)
+  const treasuryKey = b58decode(treasury)
+  const source = associatedTokenAddress(owner, mint)
+  const dest = associatedTokenAddress(treasury, mint)
+  const token = TOKEN_PROGRAM()
+  const held = await tokenAccountsOf(treasury, mint)
+  const createDest = held.length === 0
+  const writable = [source, dest]
+  const readonly = [mintKey, token, MEMO_PROGRAM()]
+  if (createDest) readonly.push(SYSTEM_PROGRAM(), ATA_PROGRAM(), treasuryKey)
+  const instructions = []
+  if (createDest) {
+    instructions.push({
+      programId: ATA_PROGRAM(),
+      accounts: [payer, dest, treasuryKey, mintKey, SYSTEM_PROGRAM(), token],
+      data: Buffer.from([1]),
+    })
+  }
+  const transfer = Buffer.alloc(10)
+  transfer[0] = 12
+  transfer.writeBigUInt64LE(BigInt(amountRaw), 1)
+  transfer[9] = decimals
+  instructions.push({ programId: token, accounts: [source, mintKey, dest, payer], data: transfer })
+  instructions.push({ programId: MEMO_PROGRAM(), accounts: [payer], data: Buffer.from(memo, 'utf8') })
+  const { value } = await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])
+  return compileLegacyTransaction({ payer, writable, readonly, blockhash: value.blockhash, instructions })
 }
 
 /** UI-unit balance of `owner` for `mint` (0 when they hold none). */

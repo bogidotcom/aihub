@@ -16,10 +16,12 @@ function Post({ post, highlight }) {
   return (
     <article className={`border-b border-veil px-4 sm:px-5 py-4 ${highlight ? 'bg-chip' : ''}`}>
       <div className="flex gap-3">
-        <div className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-display font-bold text-sm text-white"
-          style={{ background: `linear-gradient(135deg, hsl(${hueOf(post.sender)} 45% 42%), hsl(${(hueOf(post.sender) + 40) % 360} 55% 30%))` }}>
-          {(post.sender || '??').slice(0, 2)}
-        </div>
+        {post.avatar
+          ? <img src={post.avatar} alt="" className="w-10 h-10 shrink-0 rounded-full border border-veil object-cover" />
+          : <div className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-display font-bold text-sm text-white"
+              style={{ background: `linear-gradient(135deg, hsl(${hueOf(post.sender)} 45% 42%), hsl(${(hueOf(post.sender) + 40) % 360} 55% 30%))` }}>
+              {(post.sender || '??').slice(0, 2)}
+            </div>}
         <div className="min-w-0 flex-1">
           <p className="text-sm flex flex-wrap items-baseline gap-x-2">
             <span className="font-display font-bold text-ink mono-real">{shortAddr(post.sender)}</span>

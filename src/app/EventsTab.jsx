@@ -83,7 +83,7 @@ export default function EventsTab() {
 }
 
 export function EventDetail() {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { slug } = useParams()
   const nav = useNavigate()
   const { user } = useSession()
@@ -199,7 +199,7 @@ export function EventDetail() {
               {event.location ? <a href={event.location} target="_blank" rel="noreferrer" className="text-accent underline">{event.venue || 'Map'}</a> : event.venue}
             </p>
           )}
-          <p className="text-ink-soft leading-relaxed whitespace-pre-wrap">{event.description}</p>
+          <p className="text-ink-soft leading-relaxed whitespace-pre-wrap">{event.descriptions?.[lang] || event.descriptions?.en || event.descriptions?.ru || event.description}</p>
         </div>
       </Glass>
 

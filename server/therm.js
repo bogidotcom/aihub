@@ -6,6 +6,7 @@
 //
 // Everything is idempotent on the transaction signature, so restarts and re-scans never double-spend DAI.
 import { db, getSetting, setSetting } from './db.js'
+import { requireAuth } from './auth.js'
 import { rpc, tokenAccountsOf, readIncomingTransfer, thermBalance, verifyWalletSignature, isSolanaAddress } from './solana.js'
 import * as dai from './dai.js'
 
@@ -56,10 +57,14 @@ async function scanChain() {
       if (!fresh.length) continue
 
       if (!cursors[a.address] && !c.backfill) {
-        // First sight of this account: don't spend DAI on old history unless asked to.
+        // Don't answer old history. A transfer that just landed still counts: the account
+        // often appears for the first time because of that payment.
+        const cutoff = Math.floor(Date.now() / 1000) - 20 * 60
+        const recent = fresh.filter(s => !s.err && (s.blockTime || 0) >= cutoff).reverse()
+        for (const s of recent) await ingest(s.signature, c)
         cursors[a.address] = fresh[0].signature
         setSetting('therm_cursors', cursors)
-        log(`first run on ${a.address}: skipping ${fresh.length} historical transfer(s) (set THERM_BACKFILL=1 to answer them)`)
+        log(`first run on ${a.address}: ingested ${recent.length} recent, skipped ${fresh.length - recent.length} older (set THERM_BACKFILL=1 to answer history)`)
         continue
       }
       const batch = (cursors[a.address] ? fresh : fresh.slice(0, 200)).filter(s => !s.err).reverse() // oldest first
@@ -85,7 +90,32 @@ async function ingest(sig, c) {
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
     .run(sig, tx.slot ?? null, tx.blockTime ?? null, inc.sender, inc.received.toString(), inc.decimals, therm, memo,
       memo ? 'received' : 'no_memo', allowance, now())
+  const claim = db.prepare('SELECT user_id FROM post_claims WHERE sig = ?').get(sig)
+  if (claim && inc.sender) linkWallet(inc.sender, claim.user_id)
   log(`+ ${therm} THERM from ${inc.sender?.slice(0, 6)}… ${memo ? `memo(${Buffer.byteLength(memo)}B)` : 'no memo'} ${sig.slice(0, 10)}…`)
+}
+
+function linkWallet(wallet, userId) {
+  if (!wallet || !userId) return
+  db.prepare(`INSERT INTO wallet_links (wallet, user_id, updated_at) VALUES (?,?,?)
+    ON CONFLICT(wallet) DO UPDATE SET user_id = excluded.user_id, updated_at = excluded.updated_at`)
+    .run(wallet, userId, now())
+}
+
+function withAuthors(rows) {
+  const senders = [...new Set(rows.map(r => r.sender).filter(Boolean))]
+  const authors = new Map()
+  if (senders.length) {
+    const marks = senders.map(() => '?').join(',')
+    for (const row of db.prepare(`SELECT w.wallet, u.photo_url, u.username, u.first_name
+      FROM wallet_links w JOIN users u ON u.id = w.user_id WHERE w.wallet IN (${marks})`).all(...senders)) {
+      authors.set(row.wallet, row)
+    }
+  }
+  return rows.map(r => {
+    const author = authors.get(r.sender)
+    return { ...postView(r), id: r.id, avatar: author?.photo_url || '', author: author?.first_name || (author?.username ? '@' + author.username : '') }
+  })
 }
 
 // ---------- 2. turn memos into jobs ----------
@@ -258,13 +288,25 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     const rows = db.prepare(`SELECT * FROM therm_posts WHERE hidden = 0 AND status != 'no_memo' AND id < ? ORDER BY id DESC LIMIT ?`).all(before, limit + 1)
     const more = rows.length > limit
     const page = rows.slice(0, limit)
-    res.json({ posts: page.map(r => ({ ...postView(r), id: r.id })), next: more ? page[page.length - 1].id : null })
+    res.json({ posts: withAuthors(page), next: more ? page[page.length - 1].id : null })
   })
 
   app.get('/api/therm/tx/:sig', (req, res) => {
     const row = db.prepare('SELECT * FROM therm_posts WHERE sig = ? AND hidden = 0').get(req.params.sig)
     if (!row) return res.status(404).json({ error: 'NOT_FOUND' })
-    res.json({ post: { ...postView(row), id: row.id } })
+    res.json({ post: withAuthors([row])[0] })
+  })
+
+  // The payer is logged in with Telegram. Remember the signature now; the sender wallet
+  // is linked when the transfer shows up, so the feed can use their photo.
+  app.post('/api/therm/claim', requireAuth, (req, res) => {
+    const sig = String(req.body?.sig || '').trim()
+    if (!/^[1-9A-HJ-NP-Za-km-z]{80,90}$/.test(sig)) return res.status(400).json({ error: 'BAD_SIG' })
+    db.prepare(`INSERT INTO post_claims (sig, user_id, created_at) VALUES (?,?,?)
+      ON CONFLICT(sig) DO UPDATE SET user_id = excluded.user_id`).run(sig, req.user.id, now())
+    const row = db.prepare('SELECT sender FROM therm_posts WHERE sig = ?').get(sig)
+    if (row?.sender) linkWallet(row.sender, req.user.id)
+    res.json({ ok: true })
   })
 
   app.post('/api/therm/quote', async (req, res) => {
@@ -287,6 +329,10 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
 
   app.get('/api/therm/top', (_req, res) => {
     res.json({ projects: topProjects(10), votingOpen: thermConfigured() })
+  })
+
+  app.get('/api/therm/projects', (_req, res) => {
+    res.json({ projects: topProjects(500), votingOpen: thermConfigured() })
   })
 
   // Wallet-signed vote: the wallet proves it owns the address, its live THERM balance is the weight.

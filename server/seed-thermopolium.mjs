@@ -40,16 +40,24 @@ Sep 28 — Oct 12, 2026.`,
   },
 ]
 
+const splitCopy = (text) => {
+  const parts = String(text || '').split(/\n—\n/)
+  if (parts.length < 2) return { en: String(text || '').trim(), ru: '' }
+  return { ru: parts[0].trim(), en: parts.slice(1).join('\n—\n').trim() }
+}
+
 const upsertEvent = (e) => {
+  const copy = splitCopy(e.description)
+  const i18n = JSON.stringify(copy)
   const row = db.prepare('SELECT id FROM events WHERE slug = ?').get(e.slug)
   if (row) {
-    db.prepare(`UPDATE events SET title=?, description=?, cover_image=?, venue=?, starts_at=?, ends_at=?, status='published' WHERE id=?`)
-      .run(e.title, e.description, e.cover_image, e.venue, e.starts_at, e.ends_at, row.id)
+    db.prepare(`UPDATE events SET title=?, description=?, cover_image=?, venue=?, starts_at=?, ends_at=?, status='published', i18n=? WHERE id=?`)
+      .run(e.title, copy.en || copy.ru, e.cover_image, e.venue, e.starts_at, e.ends_at, i18n, row.id)
     return { id: row.id, created: false }
   }
-  const r = db.prepare(`INSERT INTO events (title, slug, description, cover_image, venue, location, starts_at, ends_at, status)
-    VALUES (?,?,?,?,?,'',?,?,'published')`)
-    .run(e.title, e.slug, e.description, e.cover_image, e.venue, e.starts_at, e.ends_at)
+  const r = db.prepare(`INSERT INTO events (title, slug, description, cover_image, venue, location, starts_at, ends_at, status, i18n)
+    VALUES (?,?,?,?,?,'',?,?,'published',?)`)
+    .run(e.title, e.slug, copy.en || copy.ru, e.cover_image, e.venue, e.starts_at, e.ends_at, i18n)
   return { id: Number(r.lastInsertRowid), created: true }
 }
 
