@@ -7,7 +7,7 @@
 // Everything is idempotent on the transaction signature, so restarts and re-scans never double-spend DAI.
 import { db, getSetting, setSetting } from './db.js'
 import { requireAuth } from './auth.js'
-import { rpc, tokenAccountsOf, readIncomingTransfer, thermBalance, verifyWalletSignature, isSolanaAddress } from './solana.js'
+import { rpc, tokenAccountsOf, readIncomingTransfer, isSolanaAddress, buildTokenPayment, submitTransaction, paysTreasury, paymentCoversTreasury, resolveThermMint } from './solana.js'
 import * as dai from './dai.js'
 
 const cfg = () => ({
@@ -19,11 +19,27 @@ const cfg = () => ({
   pollMs: Number(process.env.THERM_POLL_MS || 8000),
   backfill: process.env.THERM_BACKFILL === '1',
   jobTimeoutMs: Number(process.env.THERM_JOB_TIMEOUT_MS || 30 * 60 * 1000),
-  voteRefreshMs: Number(process.env.THERM_VOTE_REFRESH_MS || 10 * 60 * 1000),
 })
 export const thermConfigured = () => !!(cfg().mint && cfg().treasury)
+const publicBase = () => (process.env.WEB_APP_URL || 'https://iamai.kg/thermopolium').replace(/\/$/, '')
+const ESTIMATE_DOCS = 'https://iamai.kg/docs/#jobs'
+
+function thermToRaw(amount, decimals) {
+  const fixed = Number(amount).toFixed(decimals)
+  const raw = decimals === 0 ? fixed : fixed.replace('.', '')
+  return BigInt(raw).toString()
+}
+
+function x402Cors(res) {
+  res.set('Access-Control-Allow-Origin', '*')
+  res.set('Access-Control-Allow-Headers', 'Content-Type, PAYMENT-SIGNATURE, X-PAYMENT')
+  res.set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED')
+}
 
 const now = () => new Date().toISOString()
+// created_at comes from SQLite's CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", no zone);
+// updated_at is always written by now() above (already a full ISO string with "Z").
+const toMs = (s) => new Date(/Z$/.test(s) ? s : s.replace(' ', 'T') + 'Z').getTime()
 const log = (...a) => console.log('[therm]', ...a)
 
 function truncateBytes(s, max) {
@@ -39,7 +55,9 @@ async function scanChain() {
   if (!thermConfigured() || scanning) return
   scanning = true
   try {
-    const accts = await tokenAccountsOf(c.treasury, c.mint)
+    const asset = await resolveThermMint(c.mint)
+    const watch = { ...c, mint: asset.address }
+    const accts = await tokenAccountsOf(watch.treasury, watch.mint)
     const cursors = getSetting('therm_cursors', {})
     for (const a of accts) {
       const fresh = []
@@ -61,14 +79,14 @@ async function scanChain() {
         // often appears for the first time because of that payment.
         const cutoff = Math.floor(Date.now() / 1000) - 20 * 60
         const recent = fresh.filter(s => !s.err && (s.blockTime || 0) >= cutoff).reverse()
-        for (const s of recent) await ingest(s.signature, c)
+        for (const s of recent) await ingest(s.signature, watch)
         cursors[a.address] = fresh[0].signature
         setSetting('therm_cursors', cursors)
         log(`first run on ${a.address}: ingested ${recent.length} recent, skipped ${fresh.length - recent.length} older (set THERM_BACKFILL=1 to answer history)`)
         continue
       }
       const batch = (cursors[a.address] ? fresh : fresh.slice(0, 200)).filter(s => !s.err).reverse() // oldest first
-      for (const s of batch) await ingest(s.signature, c)
+      for (const s of batch) await ingest(s.signature, watch)
       cursors[a.address] = fresh[0].signature
       setSetting('therm_cursors', cursors)
     }
@@ -168,7 +186,7 @@ async function publishOne(row, notifyAdmins) {
     log(`→ job ${job.jobId} for ${row.sig.slice(0, 10)}… budget ${job.budgetUdai} μDAI (${est.source} estimate)`)
   } catch (e) {
     log(`publish failed for ${row.sig.slice(0, 10)}…: ${e.code || ''} ${e.message}`)
-    const funding = e.code === 'payment' || /balance|insufficient|fund/i.test(e.message || '')
+    const funding = e.code === 'payment' || e.code === 'PAYMENT_PROOF_MISMATCH' || /balance|insufficient|fund/i.test(e.message || '')
     // A funding failure isn't the sender's fault: leave it 'received' so it retries once the wallet is topped up.
     if (funding || e.code === 'no_wallet' || e.name === 'TimeoutError' || e.cause?.code === 'ECONNREFUSED' || /fetch failed/.test(e.message)) {
       if (Date.now() - lastFundingAlert > 3600_000) {
@@ -191,7 +209,10 @@ async function pollJobs() {
     const rows = db.prepare("SELECT * FROM therm_posts WHERE status IN ('queued','computing') ORDER BY id LIMIT 25").all()
     for (const row of rows) {
       try {
-        if (Date.now() - new Date(row.created_at.replace(' ', 'T') + 'Z').getTime() > c.jobTimeoutMs) {
+        // Measure from when the job was dispatched (updated_at at the 'queued' transition), not
+        // from the post's original created_at — a post can sit for hours on a funding retry before
+        // it's finally queued, and that wait must not count against the job's own timeout budget.
+        if (Date.now() - toMs(row.updated_at || row.created_at) > c.jobTimeoutMs) {
           update(row.id, { status: 'error', error: 'timeout: no result from the node' })
           continue
         }
@@ -210,24 +231,6 @@ async function pollJobs() {
   } finally { polling = false }
 }
 
-// ---------- 4. votes ----------
-let refreshingVotes = false
-async function refreshVoteWeights() {
-  const c = cfg()
-  if (!thermConfigured() || refreshingVotes) return
-  refreshingVotes = true
-  try {
-    const wallets = db.prepare('SELECT wallet FROM project_votes ORDER BY updated_at ASC LIMIT 200').all()
-    for (const { wallet } of wallets) {
-      try {
-        const w = await thermBalance(wallet, c.mint)
-        db.prepare('UPDATE project_votes SET weight = ?, updated_at = ? WHERE wallet = ?').run(w, now(), wallet)
-      } catch (e) { log(`vote refresh ${wallet.slice(0, 6)}…: ${e.message}`) }
-      await new Promise(r => setTimeout(r, 150))
-    }
-  } finally { refreshingVotes = false }
-}
-
 // ---------- public views ----------
 const shortErr = (row) => {
   if (row.status === 'insufficient') return row.error || 'not enough THERM for this prompt'
@@ -240,45 +243,53 @@ export const postView = (r) => ({
 })
 
 export function createProject(userId, p) {
-  const colo = p.colosseum && typeof p.colosseum === 'object' ? p.colosseum : null
   const clean = (s, n) => String(s ?? '').trim().slice(0, n)
-  const name = clean(p.name, 120) || clean(colo?.name, 120)
-  const link = clean(p.link, 300) || (colo?.slug ? `https://colosseum.com/arena/projects/${colo.slug}` : '')
+  const name = clean(p.name, 120)
+  const link = clean(p.link, 300)
   if (!name || !/^https?:\/\//i.test(link)) return null
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) + '-' + Math.random().toString(36).slice(2, 6)
-  const github = clean(p.github, 200) || clean(colo?.repoLink, 200)
-  const x = clean(p.x, 100) || clean(colo?.twitter, 60)
-  const image = /^https:\/\//.test(colo?.image || '') ? colo.image.slice(0, 500) : ''
   db.prepare(`INSERT INTO projects (slug, user_id, name, blockchain, country, github, x, tg, link, description, image, category, details, submitter)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(
-      slug, userId ?? null, name, clean(p.blockchain, 40), clean(p.country, 80),
-      github, x, clean(p.tg, 60), link,
-      clean(colo?.description, 1500), image, clean(colo?.category, 60),
-      colo ? JSON.stringify(colo).slice(0, 8000) : null,
+      slug, userId ?? null, name, clean(p.blockchain, 40) || 'Solana', clean(p.country, 80),
+      clean(p.github, 200), clean(p.x, 100), clean(p.tg, 60), link,
+      clean(p.description, 1500), '', '', null,
       clean(p.submitter, 80),
     )
   return slug
 }
 
 const topProjects = (limit = 10) => db.prepare(`
-  SELECT p.slug, p.name, p.blockchain, p.country, p.github, p.x, p.link, p.description, p.image, p.category, p.created_at,
-         COALESCE(SUM(v.weight), 0) AS votes, COUNT(v.wallet) AS voters
-  FROM projects p LEFT JOIN project_votes v ON v.project_id = p.id
-  WHERE p.hidden = 0 GROUP BY p.id ORDER BY votes DESC, p.id ASC LIMIT ?`).all(limit)
-  .map((p, i) => ({ ...p, rank: i + 1 }))
+  SELECT p.slug, p.name, p.blockchain, p.country, p.github, p.x, p.link, p.description, p.image, p.category, p.created_at
+  FROM projects p
+  WHERE p.hidden = 0 ORDER BY p.created_at DESC, p.id DESC LIMIT ?`).all(limit)
+  .map((p, i) => ({ ...p, rank: i + 1, votes: 0, voters: 0 }))
 
 // ---------- routes + lifecycle ----------
 export function startTherm(app, { notifyAdmins, requireAdmin }) {
   const c = cfg()
 
-  app.get('/api/therm/config', (_req, res) => {
+  app.get('/api/therm/config', async (_req, res) => {
     const cc = cfg()
+    let asset = null
+    if (cc.mint) {
+      try { asset = await resolveThermMint(cc.mint) } catch (e) { log('config mint', e.message) }
+    }
     res.json({
       configured: thermConfigured(), network: 'solana',
-      mint: cc.mint || null, treasury: cc.treasury || null,
+      mint: asset?.address || null, pool: asset?.pool || null, decimals: asset?.decimals ?? null,
+      treasury: cc.treasury || null,
       tokensPerTherm: cc.tokensPerTherm, memoMaxBytes: cc.memoMax,
       posts: db.prepare("SELECT COUNT(*) n FROM therm_posts WHERE hidden = 0 AND status != 'no_memo'").get().n,
+      x402: {
+        scheme: 'exact',
+        network: 'solana',
+        asset: asset?.address || null,
+        payTo: cc.treasury || null,
+        infer: `${publicBase()}/api/x402/infer`,
+        data: `${publicBase()}/api/x402/data`,
+        estimate: 'https://iamai.kg/docs/#jobs',
+      },
     })
   })
 
@@ -309,51 +320,198 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     res.json({ ok: true })
   })
 
-  app.post('/api/therm/quote', async (req, res) => {
+  const pricePrompt = async (prompt) => {
     const cc = cfg()
-    const prompt = String(req.body?.prompt || '').trim()
-    if (!prompt) return res.status(400).json({ error: 'EMPTY' })
-    if (Buffer.byteLength(prompt, 'utf8') > cc.memoMax) return res.status(400).json({ error: 'TOO_LONG' })
     const est = await dai.estimate(prompt)
     const up6 = (n) => Math.ceil(n * 1e6) / 1e6
     const suggested = Math.max(up6((est.recommendedTokens / cc.tokensPerTherm) * 1.1), 0.000001)
+    return { cc, est, suggested, up6 }
+  }
+
+  app.post('/api/therm/quote', async (req, res) => {
+    const prompt = String(req.body?.prompt || '').trim()
+    const cc = cfg()
+    if (!prompt) return res.status(400).json({ error: 'EMPTY' })
+    if (Buffer.byteLength(prompt, 'utf8') > cc.memoMax) return res.status(400).json({ error: 'TOO_LONG' })
+    const { est, suggested, up6 } = await pricePrompt(prompt)
+    let asset = null
+    if (thermConfigured()) {
+      try { asset = await resolveThermMint(cc.mint) } catch (e) { log('quote mint', e.message) }
+    }
     res.json({
       bytes: Buffer.byteLength(prompt, 'utf8'), source: est.source,
       tokens: { min: est.minTokens, recommended: est.recommendedTokens },
       therm: { min: up6(est.minTokens / cc.tokensPerTherm), suggested },
-      pay: thermConfigured()
-        ? `solana:${cc.treasury}?spl-token=${cc.mint}&amount=${suggested}&label=Thermopolium&memo=${encodeURIComponent(prompt)}`
+      pay: asset
+        ? `solana:${cc.treasury}?spl-token=${asset.address}&amount=${suggested}&label=THERM&memo=${encodeURIComponent(prompt)}`
         : null,
     })
   })
 
+  // Unsigned payment the connected wallet signs and submits. The memo is the prompt.
+  app.post('/api/therm/pay', async (req, res) => {
+    const cc = cfg()
+    if (!thermConfigured()) return res.status(503).json({ error: 'NOT_CONFIGURED' })
+    const owner = String(req.body?.owner || '').trim()
+    const prompt = String(req.body?.prompt || '').trim()
+    if (!isSolanaAddress(owner)) return res.status(400).json({ error: 'BAD_WALLET' })
+    if (!prompt) return res.status(400).json({ error: 'EMPTY' })
+    if (Buffer.byteLength(prompt, 'utf8') > cc.memoMax) return res.status(400).json({ error: 'TOO_LONG' })
+    try {
+      const { suggested } = await pricePrompt(prompt)
+      const asset = await resolveThermMint(cc.mint)
+      const decimals = asset.decimals
+      if (decimals > 18) throw new Error('bad mint decimals')
+      const raw = thermToRaw(suggested, decimals)
+      const built = await buildTokenPayment({
+        owner, treasury: cc.treasury, mint: asset.address, amountRaw: raw, decimals, memo: prompt,
+      })
+      const bytes = Buffer.from(built.transaction, 'base64')
+      if (bytes[0] !== 1) throw new Error('bad signature prefix')
+      res.json({
+        transaction: built.transaction,
+        message: bytes.subarray(65).toString('base64'),
+        amount: suggested,
+        decimals,
+      })
+    } catch (e) {
+      if (e.code === 'NO_THERM') return res.status(403).json({ error: 'NO_THERM' })
+      log('pay', e.message)
+      res.status(502).json({ error: 'CHAIN_UNAVAILABLE' })
+    }
+  })
+
+  // Wallet signed but did not broadcast (signTransaction fallback).
+  app.post('/api/therm/submit', async (req, res) => {
+    const cc = cfg()
+    const transaction = String(req.body?.transaction || '')
+    if (!thermConfigured()) return res.status(503).json({ error: 'NOT_CONFIGURED' })
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(transaction) || transaction.length < 100 || transaction.length > 4000) {
+      return res.status(400).json({ error: 'BAD_TX' })
+    }
+    let asset
+    try { asset = await resolveThermMint(cc.mint) } catch (e) {
+      log('submit mint', e.message)
+      return res.status(502).json({ error: 'CHAIN_UNAVAILABLE' })
+    }
+    if (!await paysTreasury(transaction, { mint: asset.address, treasury: cc.treasury })) return res.status(400).json({ error: 'BAD_TX' })
+    try {
+      const signature = await submitTransaction(transaction)
+      res.json({ signature })
+    } catch (e) {
+      log('submit', e.message)
+      res.status(502).json({ error: 'CHAIN_UNAVAILABLE' })
+    }
+  })
+
   app.get('/api/therm/top', (_req, res) => {
-    res.json({ projects: topProjects(10), votingOpen: thermConfigured() })
+    res.json({ projects: topProjects(10), votingOpen: false })
   })
 
   app.get('/api/therm/projects', (_req, res) => {
-    res.json({ projects: topProjects(500), votingOpen: thermConfigured() })
+    res.json({ projects: topProjects(500), votingOpen: false })
   })
 
-  // Wallet-signed vote: the wallet proves it owns the address, its live THERM balance is the weight.
-  app.post('/api/therm/vote', async (req, res) => {
+  app.post('/api/therm/vote', (_req, res) => {
+    res.status(410).json({ error: 'VOTING_CLOSED' })
+  })
+
+  // Solana x402. No payment → 402 priced from the DAI job estimate.
+  // A retry carries PAYMENT-SIGNATURE (or X-PAYMENT): base64 JSON { payload: { transaction } }.
+  // The signed transferChecked must pay the treasury at least the quoted raw amount, and the memo must be the prompt.
+  app.options('/api/x402/infer', (_req, res) => {
+    x402Cors(res)
+    res.set('Access-Control-Allow-Methods', 'POST, OPTIONS')
+    res.sendStatus(204)
+  })
+
+  app.post('/api/x402/infer', async (req, res) => {
+    x402Cors(res)
     const cc = cfg()
-    if (!thermConfigured()) return res.status(503).json({ error: 'VOTING_NOT_OPEN' })
-    const { slug, wallet, message, signature } = req.body || {}
-    if (!isSolanaAddress(wallet) || typeof message !== 'string' || !Array.isArray(signature)) return res.status(400).json({ error: 'BAD_REQUEST' })
-    const m = message.match(/^Thermopolium vote\nproject: ([a-z0-9-]+)\nissued: (\S+)$/)
-    if (!m || m[1] !== slug) return res.status(400).json({ error: 'BAD_MESSAGE' })
-    if (Math.abs(Date.now() - Date.parse(m[2])) > 10 * 60 * 1000) return res.status(400).json({ error: 'EXPIRED' })
-    if (!verifyWalletSignature(wallet, message, signature)) return res.status(401).json({ error: 'BAD_SIGNATURE' })
-    const project = db.prepare('SELECT id FROM projects WHERE slug = ? AND hidden = 0').get(slug)
-    if (!project) return res.status(404).json({ error: 'PROJECT_NOT_FOUND' })
-    let weight
-    try { weight = await thermBalance(wallet, cc.mint) } catch { return res.status(502).json({ error: 'CHAIN_UNAVAILABLE' }) }
-    if (!(weight > 0)) return res.status(403).json({ error: 'NO_THERM' })
-    db.prepare(`INSERT INTO project_votes (wallet, project_id, weight, signature, updated_at) VALUES (?,?,?,?,?)
-      ON CONFLICT(wallet) DO UPDATE SET project_id = excluded.project_id, weight = excluded.weight, signature = excluded.signature, updated_at = excluded.updated_at`)
-      .run(wallet, project.id, weight, Buffer.from(signature).toString('base64'), now())
-    res.json({ ok: true, weight })
+    if (!thermConfigured()) return res.status(503).json({ error: 'NOT_CONFIGURED' })
+    const prompt = String(req.body?.prompt || '').trim()
+    if (!prompt) return res.status(400).json({ error: 'EMPTY' })
+    if (Buffer.byteLength(prompt, 'utf8') > cc.memoMax) return res.status(400).json({ error: 'TOO_LONG' })
+    let priced
+    try { priced = await pricePrompt(prompt) } catch (e) {
+      log('x402 estimate', e.message)
+      return res.status(502).json({ error: 'ESTIMATE_UNAVAILABLE' })
+    }
+    const { est, suggested } = priced
+    let asset
+    try { asset = await resolveThermMint(cc.mint) } catch (e) {
+      log('x402 mint', e.message)
+      return res.status(502).json({ error: 'CHAIN_UNAVAILABLE' })
+    }
+    const decimals = asset.decimals
+    const raw = thermToRaw(suggested, decimals)
+    const challenge = {
+      x402Version: 1,
+      error: 'PAYMENT-SIGNATURE header is required',
+      accepts: [{
+        scheme: 'exact',
+        network: 'solana',
+        maxAmountRequired: raw,
+        resource: `${publicBase()}/api/x402/infer`,
+        description: `THERM inference. ${est.recommendedTokens} AI tokens from ${ESTIMATE_DOCS}.`,
+        mimeType: 'application/json',
+        payTo: cc.treasury,
+        maxTimeoutSeconds: 120,
+        asset: asset.address,
+        extra: {
+          memo: prompt,
+          decimals,
+          tokensPerTherm: cc.tokensPerTherm,
+          tokens: { min: est.minTokens, recommended: est.recommendedTokens },
+          source: est.source,
+          estimate: ESTIMATE_DOCS,
+          therm: suggested,
+        },
+      }],
+    }
+    const header = String(req.get('PAYMENT-SIGNATURE') || req.get('X-PAYMENT') || '')
+    if (!header) {
+      res.set('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(challenge)).toString('base64'))
+      return res.status(402).json(challenge)
+    }
+    let payload
+    try { payload = JSON.parse(Buffer.from(header, 'base64').toString('utf8')) } catch {
+      return res.status(400).json({ error: 'BAD_PAYMENT' })
+    }
+    const transaction = payload?.payload?.transaction || payload?.transaction
+    if (typeof transaction !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(transaction) || transaction.length < 100 || transaction.length > 4000) {
+      return res.status(400).json({ error: 'BAD_TX' })
+    }
+    const pay = await paymentCoversTreasury(transaction, { mint: asset.address, treasury: cc.treasury, amountRaw: raw })
+    if (!pay || !pay.memos.some(m => m === prompt)) {
+      res.set('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(challenge)).toString('base64'))
+      return res.status(402).json({ ...challenge, error: 'PAYMENT_MISMATCH' })
+    }
+    const dataUrl = (sig) => `${publicBase()}/api/x402/data/${sig}`
+    try {
+      const signature = await submitTransaction(transaction)
+      res.json({
+        signature, therm: suggested, tokens: est.recommendedTokens, source: est.source, data: dataUrl(signature),
+      })
+    } catch (e) {
+      const msg = String(e.message || e)
+      if (/already been processed|already processed|duplicate/i.test(msg)) {
+        return res.json({
+          signature: pay.signature, therm: suggested, tokens: est.recommendedTokens, source: est.source, data: dataUrl(pay.signature),
+        })
+      }
+      log('x402 submit', msg)
+      res.status(502).json({ error: 'CHAIN_UNAVAILABLE' })
+    }
+  })
+
+  app.get('/api/x402/data/:sig', (req, res) => {
+    x402Cors(res)
+    const sig = String(req.params.sig || '')
+    if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(sig)) return res.status(400).json({ error: 'BAD_SIG' })
+    const row = db.prepare('SELECT * FROM therm_posts WHERE sig = ? AND hidden = 0').get(sig)
+    if (!row) return res.status(202).json({ signature: sig, status: 'pending', answer: null })
+    res.json({ signature: row.sig, status: row.status, answer: row.answer || null, memo: row.memo })
   })
 
   app.post('/api/admin/therm/:sig/hide', requireAdmin, (req, res) => {
@@ -369,7 +527,9 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     log('THERM_MINT / THERM_TREASURY not set — watcher idle (API still serves the feed and top 10)')
   } else {
     const w = dai.loadWallet()
-    log(`watching ${c.treasury} for ${c.mint} — 1 THERM = ${c.tokensPerTherm.toLocaleString()} AI tokens; DAI wallet ${w ? w.address : 'NOT CONFIGURED (jobs will wait)'}`)
+    resolveThermMint(c.mint)
+      .then(a => log(`watching ${c.treasury} for mint ${a.address}${a.pool ? ` (pool ${a.pool})` : ''} — 1 THERM = ${c.tokensPerTherm.toLocaleString()} AI tokens; DAI wallet ${w ? w.address : 'NOT CONFIGURED (jobs will wait)'}`))
+      .catch(e => log('mint', e.message))
     if (w && w.address !== w.derived) log(`note: DAI_ADDRESS (${w.address}) differs from the key-derived address (${w.derived})`)
   }
 
@@ -380,5 +540,4 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
   }
   setInterval(tick, c.pollMs)
   setTimeout(tick, 1500)
-  setInterval(refreshVoteWeights, c.voteRefreshMs)
 }

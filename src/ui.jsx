@@ -66,8 +66,8 @@ export function Collage({ photos }) {
 export function GradBtn({ children, className = '', as: As = 'button', ...props }) {
   return (
     <As
-      className={`inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold rounded-xl transition-transform duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-accent/30 disabled:opacity-50 disabled:pointer-events-none cursor-pointer ${className}`}
-      style={{ background: 'linear-gradient(100deg, var(--accent), var(--accent-2))', color: 'var(--on-accent, #fff)' }}
+      className={`inline-flex items-center justify-center gap-2 px-6 py-3 font-semibold rounded-xl transition-colors duration-200 hover:brightness-110 active:brightness-95 disabled:opacity-50 disabled:pointer-events-none cursor-pointer ${className}`}
+      style={{ background: 'var(--accent)', color: 'var(--on-accent, #140e06)' }}
       {...props}
     >
       {children}

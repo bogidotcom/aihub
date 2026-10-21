@@ -1,8 +1,8 @@
-# Thermopolium
+# THERM
 
-The Thermopolium hackathon side track (next to the Colosseum World's Fair) and its community token **$THERM**. Lives at **https://iamai.kg/thermopolium/**. Built on the AIHub app (Telegram login, events/RSVP, admin alerts) — the routes and tables for the old hub pages are still there but hidden.
+**$THERM** is a 29.3 kWh energy RWA. One token pays for 100,000,000 AI tokens. The site lives at **https://iamai.kg/thermopolium/**. Telegram login, the feed, and admin alerts stay. Old hub routes are still in the tree and hidden.
 
-- **Frontend** (this dir): Vite + React 19 + Tailwind 4, served under the `/thermopolium/` base path. Landing, `/therm` (token page), `/feed` (AI answers to $THERM memos), and the event/submission app under `/app`. EN/RU.
+- **Frontend** (this dir): Vite + React 19 + Tailwind 4, served under the `/thermopolium/` base path. Landing, the token page, the feed, and the ecosystem apply form under `/app`. EN/RU.
 - **`server/`**: Node 22+ (no build step) — Express + `node:sqlite`. API, Telegram bot, and the **$THERM service** (`therm.js`, `solana.js`, `dai.js`).
 
 ## Run
@@ -17,7 +17,13 @@ npm i && npm run dev
 
 ## $THERM: memo → AI answer
 
-A watcher polls the treasury's THERM token account on Solana. A transfer with a memo becomes a **signed DAI compute job** (memo = prompt, `1 THERM = 100,000,000 AI tokens`); the answer is stored and shown on `/feed`. Fee estimate: `POST /api/estimate` on the DAI node (older nodes without it get a conservative local estimate). Voting on projects is wallet-signed and weighted by live THERM balance. All of it is configured in `server/.env` (see `deploy/thermopolium.env.example`); with `THERM_MINT`/`THERM_TREASURY` empty the watcher stays idle and the rest of the site works.
+A watcher polls the treasury's THERM token account on Solana. A transfer with a memo becomes a **signed DAI compute job** (memo = prompt, `1 THERM = 100,000,000 AI tokens`); the answer is stored and shown on the feed. The price comes from `POST /api/estimate` on the DAI node (https://iamai.kg/docs/#jobs). A node without that route falls back to a local count of the prompt.
+
+Solana x402: `POST /api/x402/infer` with `{prompt}` and no payment returns **402** and a `PAYMENT-REQUIRED` header. The body is an exact-scheme challenge: asset is the THERM mint, `payTo` is the treasury, `maxAmountRequired` is the estimate in raw units, and `extra.memo` is the prompt. Retry with `PAYMENT-SIGNATURE` or `X-PAYMENT`, base64 JSON `{ "payload": { "transaction": "<signed legacy tx>" } }`. The transferChecked must pay the treasury at least that raw amount and the memo must equal the prompt. The answer for a signature is `GET /api/x402/data/:sig`. `GET /api/therm/config` lists the same routes. `POST /api/therm/vote` returns 410.
+
+The ecosystem list is `GET /api/therm/projects`, newest first. An application is the Telegram form: name, app, what it does, https link. It does not import a page from anywhere else.
+
+`THERM_MINT` may be the SPL mint or the Meteora Dynamic Bonding Curve pool the token launched on. The API reads the pool's base mint and uses that for transfers, the watcher, and x402. With `THERM_MINT`/`THERM_TREASURY` empty the watcher stays idle and the rest of the site works. See `deploy/thermopolium.env.example`.
 
 DAI wallet for jobs: `node dai-wallet.mjs generate|address|register|status` (in `server/`).
 

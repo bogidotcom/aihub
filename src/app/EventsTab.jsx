@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, MapPin, CalendarDays, Minus, Plus } from 'lucide-react'
 import { Glass, Reveal, Spinner, GradBtn, Field, Modal, fmtWhen } from '../ui.jsx'
@@ -6,7 +6,6 @@ import { api } from '../api.js'
 import { useSession } from '../session.jsx'
 import { useI18n } from '../i18n.jsx'
 import { media } from '../media.js'
-import { DAI_COUNTRIES } from '../countries.js'
 import { BLOCKCHAINS } from '../blockchains.js'
 import { LoginCard } from './AppShell.jsx'
 
@@ -25,7 +24,7 @@ function EventCard({ e }) {
     <Link to={`/app/event/${e.slug}`} className="snap-center shrink-0 w-[80%] sm:w-[340px]">
       <Glass className="rounded-2xl overflow-hidden h-full transition-transform duration-300 hover:-translate-y-1">
         <div className="h-36 flex items-center justify-center text-5xl bg-chip border-b border-veil overflow-hidden">
-          {e.cover_image ? <img src={media(e.cover_image)} alt="" className="w-full h-full object-cover" /> : '🎪'}
+          {e.cover_image ? <img src={media(e.cover_image)} alt="" className="w-full h-full object-cover" /> : <span className="font-mono text-3xl text-accent">J</span>}
         </div>
         <div className="p-5 space-y-2">
           <h3 className="font-bold text-ink leading-snug">{e.title}</h3>
@@ -59,7 +58,7 @@ export default function EventsTab() {
           {['upcoming', 'past'].map(w => (
             <button key={w} onClick={() => setWhen(w)}
               className={`px-4 py-1.5 rounded-full text-sm capitalize transition-colors cursor-pointer ${when === w ? 'font-semibold' : 'text-ink-soft'}`}
-              style={when === w ? { background: 'linear-gradient(100deg, var(--accent), var(--accent-2))', color: 'var(--on-accent, #fff)' } : undefined}>
+              style={when === w ? { background: 'var(--accent)', color: 'var(--on-accent, #140e06)' } : undefined}>
               {t(`events.${w}`)}
             </button>
           ))}
@@ -68,7 +67,7 @@ export default function EventsTab() {
 
       {!events ? <Spinner label="loading events" /> : events.length === 0 ? (
         <div className="text-center py-16 space-y-2">
-          <p className="text-4xl">🌾</p>
+          <p className="font-mono text-3xl text-accent">J</p>
           <p className="text-ink-soft">{when === 'upcoming' ? t('events.noneUpcoming') : t('events.nonePast')}</p>
         </div>
       ) : (
@@ -93,49 +92,14 @@ export function EventDetail() {
   const [qty, setQty] = useState(1)
   const [guest, setGuest] = useState({ name: '', contact: '' })
   const [busy, setBusy] = useState(false)
-  const [submitTicket, setSubmitTicket] = useState(null) // ticket type for the project-submission form
-  const [submission, setSubmission] = useState({ name: '', project: '', github: '', x: '', tg: '', link: '', blockchain: '', country: '' })
+  const [submitTicket, setSubmitTicket] = useState(null)
+  const [submission, setSubmission] = useState({ name: '', project: '', description: '', github: '', tg: '', link: '', blockchain: 'Solana' })
   const [subBusy, setSubBusy] = useState(false)
   const [subError, setSubError] = useState('')
   const [loginOpen, setLoginOpen] = useState(false)
-  const [colo, setColo] = useState(null)
-  const [coloBusy, setColoBusy] = useState(false)
-  const auto = useRef({ project: false, github: false, x: false, country: false })
 
   useEffect(() => { api(`/events/${slug}`).then(d => setEvent(d.event)).catch(() => setErr(true)) }, [slug])
   useEffect(() => { if (user) setLoginOpen(false) }, [user])
-
-  // A Colosseum project link fills the form from the public page, and the server pulls the same details again on submit.
-  useEffect(() => {
-    const link = submission.link.trim()
-    if (!/^https?:\/\//i.test(link)) { setColo(null); setColoBusy(false); return }
-    let dead = false
-    const id = setTimeout(() => {
-      setColoBusy(true)
-      api('/colosseum/preview?url=' + encodeURIComponent(link))
-        .then(d => { if (!dead) setColo(d) })
-        .catch(() => { if (!dead) setColo({ status: 'unavailable' }) })
-        .finally(() => { if (!dead) setColoBusy(false) })
-    }, 450)
-    return () => { dead = true; clearTimeout(id) }
-  }, [submission.link])
-
-  useEffect(() => {
-    if (colo?.status !== 'ok' || !colo.project) return
-    const p = colo.project
-    const match = DAI_COUNTRIES.find(c => c.country.toLowerCase() === (p.country || '').toLowerCase())
-    setSubmission(s => {
-      const next = { ...s }
-      if ((!s.project || auto.current.project) && p.name) { next.project = p.name; auto.current.project = true }
-      if ((!s.github || auto.current.github) && p.repoLink) { next.github = p.repoLink; auto.current.github = true }
-      if ((!s.x || auto.current.x) && p.twitter) { next.x = p.twitter.replace(/^@/, ''); auto.current.x = true }
-      if (match && (!s.country || auto.current.country)) {
-        next.country = `${match.country} (${match.ticker})`
-        auto.current.country = true
-      }
-      return next
-    })
-  }, [colo])
 
   if (err) return <p className="text-ink-soft py-10 text-center">{t('events.notFound')} <Link to="/app/events" className="text-accent">← {t('events.title')}</Link></p>
   if (!event) return <Spinner label="loading event" />
@@ -167,8 +131,8 @@ export function EventDetail() {
         method: 'POST',
         body: {
           name: submission.name, contact: submission.tg, topic: 'thermopolium-submission', blockchain: submission.blockchain,
-          project: { name: submission.project, blockchain: submission.blockchain, country: submission.country, github: submission.github, x: submission.x, tg: submission.tg, link: submission.link, submitter: submission.name },
-          message: `Project submission for Thermopolium\n\nProject: ${submission.project}\nBlockchain: ${submission.blockchain}\nCountry: ${submission.country}\nGitHub: ${submission.github || '—'}\nX: ${submission.x || '—'}\nTelegram (as entered): ${submission.tg}\nColosseum link: ${submission.link}`,
+          project: { name: submission.project, blockchain: submission.blockchain, description: submission.description, github: submission.github, tg: submission.tg, link: submission.link, submitter: submission.name },
+          message: `App application for THERM\n\nApp: ${submission.project}\nBlockchain: ${submission.blockchain}\nWhat it does: ${submission.description}\nGitHub: ${submission.github || '—'}\nTelegram (as entered): ${submission.tg}\nLink: ${submission.link}`,
         },
       })
       nav('/app/submissions')
@@ -188,7 +152,7 @@ export function EventDetail() {
 
       <Glass className="rounded-2xl overflow-hidden">
         <div className="h-44 flex items-center justify-center text-6xl bg-chip border-b border-veil overflow-hidden">
-          {event.cover_image ? <img src={media(event.cover_image)} alt="" className="w-full h-full object-cover" /> : '🎪'}
+          {event.cover_image ? <img src={media(event.cover_image)} alt="" className="w-full h-full object-cover" /> : <span className="font-mono text-4xl text-accent">J</span>}
         </div>
         <div className="p-6 space-y-3">
           <h1 className="text-2xl font-bold text-ink leading-tight">{event.title}</h1>
@@ -261,45 +225,22 @@ export function EventDetail() {
             </p>
           )}
           <div className="grid gap-3">
-            <Field placeholder={t('events.subLink')} value={submission.link} onChange={e => setSubmission({ ...submission, link: e.target.value })} required />
-            {coloBusy && <p className="text-xs text-ink-faint">{t('events.subColoWait')}</p>}
-            {colo?.status === 'ok' && colo.project && (
-              <div className="flex gap-3 rounded-xl border border-veil bg-chip p-3">
-                {colo.project.image && <img src={colo.project.image} alt="" className="w-14 h-14 rounded-lg object-cover shrink-0 bg-veil" />}
-                <div className="min-w-0">
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-accent">{t('events.subColoReady')}</p>
-                  <p className="font-semibold text-ink truncate">{colo.project.name}</p>
-                  {(colo.project.category || colo.project.hackathon?.name) && (
-                    <p className="text-ink-faint text-[11px] truncate">{[colo.project.category, colo.project.hackathon?.name].filter(Boolean).join(' · ')}</p>
-                  )}
-                  {colo.project.description && <p className="text-ink-soft text-xs line-clamp-3 mt-1">{colo.project.description}</p>}
-                </div>
-              </div>
-            )}
-            {colo && colo.status !== 'ok' && !coloBusy && (
-              <p className="text-xs text-accent">
-                {t(colo.status === 'not_found' ? 'events.subColoMissing' : colo.status === 'unavailable' ? 'events.subColoDown' : 'events.subColoInvalid')}
-              </p>
-            )}
             <Field placeholder={t('events.subName')} value={submission.name} onChange={e => setSubmission({ ...submission, name: e.target.value })} required />
             <Field placeholder={t('events.subProject')} value={submission.project} onChange={e => setSubmission({ ...submission, project: e.target.value })} required />
+            <textarea placeholder={t('events.subAbout')} value={submission.description} rows={4} required
+              onChange={e => setSubmission({ ...submission, description: e.target.value })}
+              className="w-full px-4 py-3 bg-chip border border-veil rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/40 transition-all placeholder:text-ink-faint text-ink" />
+            <Field placeholder={t('events.subLink')} value={submission.link} onChange={e => setSubmission({ ...submission, link: e.target.value })} required />
             <select value={submission.blockchain} onChange={e => setSubmission({ ...submission, blockchain: e.target.value })} required
               className="w-full px-4 py-3 bg-chip border border-veil rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/40 transition-all text-ink">
-              <option value="" disabled>{t('events.subBlockchain')}</option>
               {BLOCKCHAINS.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
-            <select value={submission.country} onChange={e => setSubmission({ ...submission, country: e.target.value })} required
-              className="w-full px-4 py-3 bg-chip border border-veil rounded-lg focus:outline-none focus:ring-2 focus:ring-accent/40 transition-all text-ink">
-              <option value="" disabled>{t('events.subCountry')}</option>
-              {DAI_COUNTRIES.map(c => <option key={`${c.country}|${c.ticker}`} value={`${c.country} (${c.ticker})`}>{c.country} — {c.ticker}</option>)}
-            </select>
             <Field placeholder={t('events.subGithub')} value={submission.github} onChange={e => setSubmission({ ...submission, github: e.target.value })} />
-            <Field placeholder={t('events.subX')} value={submission.x} onChange={e => setSubmission({ ...submission, x: e.target.value })} />
             <Field placeholder={t('events.subTg')} value={submission.tg} onChange={e => setSubmission({ ...submission, tg: e.target.value })} required />
           </div>
           {subError && <p className="text-center text-sm text-accent">{subError}</p>}
           <GradBtn onClick={submitProject}
-            disabled={subBusy || !submission.name || !submission.project || !submission.tg || !submission.link || !submission.blockchain || !submission.country}
+            disabled={subBusy || !submission.name || !submission.project || !submission.description || !submission.tg || !/^https?:\/\//i.test(submission.link) || !submission.blockchain}
             className="w-full">
             {subBusy ? t('events.creating') : t('events.submit')}
           </GradBtn>

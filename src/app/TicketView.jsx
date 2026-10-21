@@ -29,10 +29,10 @@ export default function TicketView() {
           <p className="text-center text-ink-soft py-16">{t('ticket.notFound')}</p>
         ) : !data ? <Spinner label="loading ticket" /> : (
           <Glass className="rounded-3xl overflow-hidden">
-            <div className="p-6 text-center space-y-1" style={{ background: 'linear-gradient(100deg, var(--accent), var(--accent-2))' }}>
-              <p className="font-mono text-[11px] uppercase tracking-[0.3em] text-white/80">{t('ticket.brand')}</p>
-              <h1 className="text-xl font-bold text-white leading-tight">{data.event?.title}</h1>
-              <p className="text-white/80 text-sm">{data.ticket_type?.name}</p>
+            <div className="p-6 text-center space-y-1" style={{ background: 'var(--accent)', color: 'var(--on-accent, #140e06)' }}>
+              <p className="font-mono text-[11px] uppercase tracking-[0.3em] opacity-70">{t('ticket.brand')}</p>
+              <h1 className="text-xl font-bold leading-tight">{data.event?.title}</h1>
+              <p className="opacity-80 text-sm">{data.ticket_type?.name}</p>
             </div>
             <div className="relative border-t-2 border-dashed border-veil">
               <span className="absolute -top-3 -left-3 w-6 h-6 rounded-full app-bg" />

@@ -33,6 +33,9 @@ run rsync -az --delete dist/ "$HOST:$WEB/"
 
 # API code. .env, node_modules and any database are excluded, so --delete can't remove them.
 run rsync -az --delete --exclude node_modules --exclude '.env' --exclude '*.db' --exclude '*.db-*' server/ "$HOST:$SRV/"
+# Blog is served from /opt/thermopolium/content/blog (one directory above the server).
+remote "mkdir -p /opt/thermopolium/content/blog"
+run rsync -az --delete content/blog/ "$HOST:/opt/thermopolium/content/blog/"
 run rsync -az deploy/ecosystem.config.cjs "$HOST:/opt/thermopolium/ecosystem.config.cjs"
 run rsync -az deploy/thermopolium.env.example "$HOST:/opt/thermopolium/thermopolium.env.example"
 remote "cd $SRV && npm ci --omit=dev"

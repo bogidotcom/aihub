@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Search, ExternalLink, Loader2 } from 'lucide-react'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { api } from '../api.js'
 import { media } from '../media.js'
 import { useI18n } from '../i18n.jsx'
@@ -9,6 +11,9 @@ import { shortAddr, timeAgo, hueOf, extractSignature } from './therm.js'
 import { useCompose } from './Compose.jsx'
 
 const PENDING = new Set(['received', 'queued', 'computing'])
+
+marked.setOptions({ gfm: true, breaks: true })
+const renderAnswer = (md) => DOMPurify.sanitize(marked.parse(md || ''))
 
 function Post({ post, highlight }) {
   const { t } = useI18n()
@@ -33,7 +38,9 @@ function Post({ post, highlight }) {
             <img src={media('therm-icon.svg')} alt="" className="w-8 h-8 shrink-0 rounded-full border border-veil bg-chip p-1" />
             <div className="min-w-0 flex-1">
               <p className="font-display text-sm font-bold text-ink">Thermopolium AI {post.status === 'done' && <span className="font-body font-normal text-ink-faint text-xs">· {t('feed.onDai')}</span>}</p>
-              {post.status === 'done' && <p className="mt-1 text-ink-soft whitespace-pre-wrap break-words">{post.answer}</p>}
+              {post.status === 'done' && (
+                <div className="prose-feed mt-1 break-words" dangerouslySetInnerHTML={{ __html: renderAnswer(post.answer) }} />
+              )}
               {pending && (
                 <p className="mt-1 text-ink-faint text-sm flex items-center gap-2 animate-pulse">
                   <Loader2 className="w-4 h-4 animate-spin" /> {post.status === 'computing' ? t('feed.thinking') : t('feed.queued')}

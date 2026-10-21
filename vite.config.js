@@ -6,6 +6,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   base: '/thermopolium/',
   plugins: [react()],
+  define: {
+    global: 'globalThis',
+  },
+  resolve: {
+    alias: { buffer: 'buffer' },
+  },
   server: {
     port: 5173,
     proxy: {

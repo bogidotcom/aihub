@@ -4,6 +4,8 @@
 //   signature = base64(ed25519(privateKey, utf8(txHash)))      — hex string is signed, not raw bytes
 import crypto from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 const node = () => (process.env.DAI_NODE_URL || 'http://127.0.0.1:3456').replace(/\/$/, '')
 
@@ -61,6 +63,21 @@ export async function walletState(address) {
   return { balance: bal.data?.balance ?? null, nonce: nonce.data?.nonce ?? 0, raw: { bal: bal.data, nonce: nonce.data } }
 }
 
+// The /job checker debits with the wallet-file nonce (WalletManager.getNonce).
+// /api/wallet/nonce reports the chain nonce, which stays behind that file once a
+// job has been accepted — the escrow bump is not an on-chain transaction.
+// Reading the same file the miner reads keeps the signed proof in step.
+export function readJobNonce(address) {
+  if (!/^dai[0-9a-f]{40}$/.test(address)) return null
+  const dir = process.env.DAI_WALLETS_DIR || path.join(os.homedir(), '.dai-miner', 'wallets')
+  try {
+    const data = JSON.parse(fs.readFileSync(path.join(dir, `${address}.json`), 'utf8'))
+    return Number.isInteger(data.nonce) && data.nonce >= 0 ? data.nonce : null
+  } catch {
+    return null
+  }
+}
+
 // ---------- estimate ----------
 /**
  * Fee estimate for a prompt, in AI tokens (1 token = gasPrice μDAI, 1 μDAI/token by default).
@@ -94,12 +111,8 @@ export function publishJob(args) {
   return run
 }
 
-async function doPublish({ prompt, budgetUdai, model }) {
-  const wallet = loadWallet()
-  if (!wallet) throw new DaiError('no_wallet', 'DAI signing key is not configured')
-  const info = await minerInfo()
+async function postPaidJob({ wallet, info, prompt, budgetUdai, model, nonce }) {
   const jobId = `job-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`
-  const { nonce } = await walletState(wallet.address)
   const txHash = paymentHash({ jobId, requesterAddress: wallet.address, minerAddress: info.minerAddress, amount: budgetUdai, nonce })
   const body = {
     id: jobId,
@@ -119,6 +132,26 @@ async function doPublish({ prompt, budgetUdai, model }) {
   return { jobId: r.data?.jobId || jobId, budgetUdai, model: body.model }
 }
 
+async function doPublish({ prompt, budgetUdai, model }) {
+  const wallet = loadWallet()
+  if (!wallet) throw new DaiError('no_wallet', 'DAI signing key is not configured')
+  const info = await minerInfo()
+  const { nonce: chainNonce } = await walletState(wallet.address)
+  const fileNonce = readJobNonce(wallet.address)
+  const start = fileNonce ?? chainNonce
+  let lastErr
+  // One step ahead covers a job that was accepted between the read and the POST.
+  for (let step = 0; step < 2; step++) {
+    try {
+      return await postPaidJob({ wallet, info, prompt, budgetUdai, model, nonce: start + step })
+    } catch (e) {
+      lastErr = e
+      if (e.code !== 'PAYMENT_PROOF_MISMATCH') throw e
+    }
+  }
+  throw lastErr
+}
+
 export class DaiError extends Error {
   constructor(code, message, status) { super(message); this.code = code; this.status = status }
 }
@@ -135,7 +168,9 @@ export function extractAnswer(result) {
   if (!result) return ''
   const pick = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '')
   const out = result.output
-  return pick(result.nlResponse) || pick(out) || pick(out?.text) || pick(out?.answer) || pick(out?.response)
+  // compute-job jobs put the model's reply in profile.computeOutput; `reasoning` is just
+  // boilerplate ("Compute job executed with model X"), so it's checked last, not first.
+  return pick(result.profile?.computeOutput) || pick(result.nlResponse) || pick(out) || pick(out?.text) || pick(out?.answer) || pick(out?.response)
     || pick(result.response) || pick(result.answer) || pick(result.text) || pick(result.reasoning) || ''
 }
 

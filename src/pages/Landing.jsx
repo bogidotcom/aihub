@@ -1,13 +1,11 @@
-import { ArrowRight, Landmark, Flame, ExternalLink, CalendarDays, Trophy, Link2 } from 'lucide-react'
+import { ArrowRight, Zap, ExternalLink, CalendarDays, Trophy, Link2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Reveal, Glass, GradBtn, Field } from '../ui.jsx'
 import { useI18n } from '../i18n.jsx'
 import { api } from '../api.js'
-import { media } from '../media.js'
 import { BLOCKCHAINS } from '../blockchains.js'
-import { Backdrop, IdeaPhoto } from '../site/parts.jsx'
-import Top10 from '../site/Top10.jsx'
+
 
 function ContactForm() {
   const { t } = useI18n()
@@ -60,9 +58,8 @@ export default function Landing() {
   return (
     <>
       {/* Hero */}
-      <section id="home" className="relative min-h-screen flex items-center px-4 py-20 overflow-hidden">
-        <Backdrop src="photos/dev-tech.jpg" opacity={0.16} />
-        <div className="max-w-6xl mx-auto w-full grid md:grid-cols-[1.2fr_1fr] gap-12 items-center relative z-10">
+      <section id="home" className="relative flex items-center px-4 py-16 md:py-28 overflow-hidden">
+        <div className="max-w-6xl mx-auto w-full grid md:grid-cols-[1.2fr_1fr] gap-10 md:gap-12 items-center relative z-10">
           <div className="space-y-8">
             <Reveal className="space-y-5">
               <h1 className="font-bold leading-[1.02] text-[clamp(2.6rem,7.2vw,5.6rem)]">
@@ -75,7 +72,7 @@ export default function Landing() {
                 <p className="flex items-center gap-2 font-mono text-sm text-ink-faint">
                   <CalendarDays className="w-4 h-4 text-accent" /> {t('hero.dates')}
                 </p>
-                <p className="flex items-center gap-2 font-mono text-xs text-accent bg-chip border border-veil rounded-full px-3 py-1.5">
+                <p className="flex items-center gap-2 font-mono text-xs text-accent bg-chip border border-veil rounded-sm px-3 py-1.5">
                   <Trophy className="w-3.5 h-3.5" /> {t('hero.reward')}
                 </p>
               </div>
@@ -85,20 +82,22 @@ export default function Landing() {
               <GradBtn as={Link} to="/app/event/thermopolium" className="group px-8 py-4">
                 {t('hero.ctaSubmit')} <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
               </GradBtn>
-              <a href="https://colosseum.com/worldsfair" target="_blank" rel="noreferrer"
+              <a href="https://iamai.kg/docs/#jobs" target="_blank" rel="noreferrer"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 text-center font-semibold rounded-xl text-ink border border-veil hover:bg-chip transition-colors duration-300">
                 {t('hero.ctaColosseum')} <ExternalLink className="w-4 h-4" />
               </a>
             </Reveal>
           </div>
 
-          <Reveal delay={250} className="relative h-96 md:h-[28rem]">
-            <Glass className="absolute inset-0 !rounded-t-[999px] !rounded-b-2xl shadow-2xl">
-              <img src={media('photos/cover-hackathon.jpg')} alt="" className="absolute inset-0 w-full h-full object-cover tinted" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
-              <div className="relative h-full flex flex-col items-center justify-end gap-2 p-8 pb-12">
-                <p className="text-xl font-bold text-center leading-tight text-white font-display">Thermopolium × DAI Miner</p>
-                <p className="text-white/80 text-sm text-center max-w-xs">{t('hero.dates')}</p>
+          <Reveal delay={250}>
+            <Glass className="rounded-3xl p-8 md:p-10 space-y-6">
+              <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-ink-faint">1 therm</p>
+              <p className="font-display font-bold text-ink text-5xl md:text-6xl leading-none">29.3 kWh</p>
+              <p className="text-ink-soft">105,480,400 J</p>
+              <div className="border-t border-veil pt-4">
+                <p className="font-mono text-[11px] uppercase tracking-[0.25em] text-ink-faint">1 $THERM</p>
+                <p className="font-display font-bold text-accent text-3xl">100,000,000</p>
+                <p className="text-ink-faint text-sm">AI tokens · Solana x402</p>
               </div>
             </Glass>
           </Reveal>
@@ -106,8 +105,7 @@ export default function Landing() {
       </section>
 
       {/* About / analogy */}
-      <section className="relative min-h-screen flex items-center py-20 px-4 overflow-hidden">
-        <Backdrop src="photos/classes-ai.jpg" opacity={0.14} />
+      <section className="relative flex items-center py-16 md:py-24 px-4 overflow-hidden">
         <div className="max-w-5xl mx-auto relative w-full">
           <Reveal>
             <Glass className="rounded-3xl p-8 md:p-12 space-y-8">
@@ -118,19 +116,17 @@ export default function Landing() {
 
               <div className="grid sm:grid-cols-[1fr_auto_1fr] gap-6 items-center">
                 <div className="flex flex-col items-center text-center gap-3 p-6 rounded-2xl bg-chip border border-veil">
-                  <Landmark className="w-9 h-9 text-accent" />
+                  <Zap className="w-9 h-9 text-accent" />
                   <p className="font-mono text-[10px] uppercase tracking-widest text-ink-faint">{t('about.mainLabel')}</p>
-                  <p className="text-xl font-bold text-ink">Colosseum</p>
-                  <p className="text-ink-faint text-sm">{t('about.mainDesc')}</p>
+                  <p className="text-xl font-bold text-ink">{t('about.mainDesc')}</p>
                 </div>
 
-                <span className="hidden sm:block text-3xl font-bold text-accent-2 select-none">×</span>
+                <span className="hidden sm:block text-3xl font-bold text-accent-2 select-none">→</span>
 
                 <div className="flex flex-col items-center text-center gap-3 p-6 rounded-2xl bg-chip border border-veil">
-                  <Flame className="w-9 h-9 text-accent-2" />
+                  <Zap className="w-9 h-9 text-accent-2" />
                   <p className="font-mono text-[10px] uppercase tracking-widest text-ink-faint">{t('about.crossLabel')}</p>
-                  <p className="text-xl font-bold text-ink">Thermopolium</p>
-                  <p className="text-ink-faint text-sm">{t('about.crossDesc')}</p>
+                  <p className="text-xl font-bold text-ink">{t('about.crossDesc')}</p>
                 </div>
               </div>
             </Glass>
@@ -139,7 +135,7 @@ export default function Landing() {
       </section>
 
       {/* Ideas that fit */}
-      <section id="ideas" className="relative min-h-screen flex items-center py-20 px-4">
+      <section id="ideas" className="relative flex items-center py-16 md:py-24 px-4">
         <div className="max-w-5xl mx-auto space-y-10 w-full">
           <Reveal className="text-center space-y-3">
             <p className="font-mono text-xs tracking-[0.3em] uppercase text-ink-faint">01 <span className="text-accent">/</span> {t('nav.ideas')}</p>
@@ -147,11 +143,7 @@ export default function Landing() {
             <p className="text-ink-soft max-w-xl mx-auto">{t('ideas.sub')}</p>
           </Reveal>
 
-          <div className="grid md:grid-cols-[0.9fr_1.3fr] gap-6 items-stretch">
-            <Reveal className="grid grid-rows-2 gap-4 h-full min-h-[420px]">
-              <IdeaPhoto src="photos/classes-ai.jpg" label="AI agent, close up" className="h-full" />
-              <IdeaPhoto src="photos/dev-tech.jpg" label="Wired into DAI" className="h-full" />
-            </Reveal>
+          <div className="grid gap-6">
             <Reveal delay={100} className="grid sm:grid-cols-2 gap-4 content-start">
               {t('ideas.items').map((idea, i) => (
                 <div key={idea} className="flex items-start gap-4 p-5 rounded-2xl bg-chip border border-veil">
@@ -171,7 +163,7 @@ export default function Landing() {
               <p className="text-ink-faint text-sm">{t('ideas.chainsNote')}</p>
               <div className="flex flex-wrap gap-2">
                 {BLOCKCHAINS.map(b => (
-                  <span key={b} className="font-mono text-xs text-ink-soft bg-chip border border-veil rounded-full px-3 py-1.5">{b}</span>
+                  <span key={b} className="font-mono text-xs text-ink-soft bg-chip border border-veil rounded-sm px-3 py-1.5">{b}</span>
                 ))}
               </div>
             </Glass>
@@ -180,8 +172,7 @@ export default function Landing() {
       </section>
 
       {/* Rules */}
-      <section id="rules" className="relative min-h-screen flex items-center py-20 px-4 overflow-hidden">
-        <Backdrop src="photos/cover-demo.jpg" opacity={0.14} />
+      <section id="rules" className="relative flex items-center py-16 md:py-24 px-4 overflow-hidden">
         <div className="max-w-5xl mx-auto space-y-10 relative w-full">
           <Reveal className="text-center space-y-3">
             <p className="font-mono text-xs tracking-[0.3em] uppercase text-ink-faint">02 <span className="text-accent">/</span> {t('nav.rules')}</p>
@@ -219,8 +210,7 @@ export default function Landing() {
       </section>
 
       {/* Event / submit */}
-      <section id="event" className="relative min-h-screen flex items-center py-20 px-4 overflow-hidden">
-        <Backdrop src="photos/dev-launch.jpg" opacity={0.16} />
+      <section id="event" className="relative flex items-center py-16 md:py-24 px-4 overflow-hidden">
         <div className="max-w-3xl mx-auto relative w-full">
           <Reveal>
             <Glass className="rounded-3xl p-8 md:p-12 text-center space-y-6">
@@ -231,7 +221,7 @@ export default function Landing() {
                 <CalendarDays className="w-4 h-4 text-accent" /> {t('event.dates')}
               </p>
               <div className="flex flex-col items-center gap-2 max-w-md mx-auto">
-                <p className="flex items-center gap-2 font-mono text-xs text-accent bg-chip border border-veil rounded-full px-3 py-1.5">
+                <p className="flex items-center gap-2 font-mono text-xs text-accent bg-chip border border-veil rounded-sm px-3 py-1.5">
                   <Trophy className="w-3.5 h-3.5 shrink-0" /> {t('event.reward')}
                 </p>
                 <p className="text-ink-faint text-xs">{t('event.chains')}</p>
@@ -247,31 +237,14 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* Top 10 supported projects */}
-      <section id="top" className="relative min-h-screen flex items-center py-20 px-4">
-        <div className="max-w-4xl mx-auto w-full space-y-10">
-          <Reveal className="text-center space-y-3">
-            <p className="font-mono text-xs tracking-[0.3em] uppercase text-ink-faint">04 <span className="text-accent">/</span> {t('top.label')}</p>
-            <h2 className="text-liquid text-3xl md:text-5xl font-bold">{t('top.title')}</h2>
-            <p className="text-ink-soft max-w-xl mx-auto">{t('top.sub')}</p>
-          </Reveal>
-          <Reveal delay={100}><Top10 /></Reveal>
-          <p className="text-center flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
-            <Link to="/app/projects" className="text-accent font-semibold">{t('top.all')} →</Link>
-            <Link to="/app/therm" className="text-accent font-semibold">{t('top.aboutTherm')} →</Link>
-          </p>
-        </div>
-      </section>
-
       {/* Contact */}
-      <section id="contact" className="relative min-h-screen flex items-center py-24 px-4 overflow-hidden">
-        <Backdrop src="photos/classes-pair.jpg" opacity={0.12} />
+      <section id="contact" className="relative flex items-center py-16 md:py-24 px-4 overflow-hidden">
         <div className="max-w-2xl mx-auto relative w-full">
           <Reveal>
             <Glass className="rounded-3xl p-8 md:p-12 space-y-8">
               <div className="text-center space-y-3">
                 <p className="font-mono text-xs tracking-[0.3em] uppercase text-ink-faint">
-                  05 <span className="text-accent">/</span> {t('contact.label')}
+                  04 <span className="text-accent">/</span> {t('contact.label')}
                 </p>
                 <h2 className="text-liquid text-4xl md:text-5xl font-bold tracking-tight">{t('contact.title')}</h2>
                 <p className="text-ink-soft">{t('contact.sub')}</p>

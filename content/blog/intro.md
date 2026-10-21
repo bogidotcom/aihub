@@ -1,37 +1,24 @@
 ---
-title: Thermopolium opens on 28 September
+title: THERM is 29.3 kWh
 date: 2026-09-28
-cover: photos/cover-hackathon.jpg
 ---
 
-# Thermopolium opens on 28 September
+# THERM is 29.3 kWh
 
-Thermopolium starts on 28 September 2026 and runs until 12 October.
+One therm of heat is 29.3 kilowatt-hours. That is 105,480,400 joules. On this site that same unit is one $THERM, and one $THERM pays for 100,000,000 AI tokens.
 
-It sits next to the Colosseum World's Fair. Picture a small food stall outside a big arena. The arena is the main show. The stall is us. You can bring the same project to both.
+## How a payment works
 
-## What to bring
+You send $THERM on Solana. The note on the transfer is the question. The answer comes back on that transaction, and it is also posted on the feed.
 
-A thing people can actually use. It should help someone in a real country pay, get paid, or finish a job in their own money. It has to use DAI, the network behind this site, in a way a judge can try for themselves.
+The price is the job estimate. The server asks the DAI node, the same estimate described at https://iamai.kg/docs/#jobs, how many tokens the question needs. Divide by 100,000,000. That is the $THERM amount.
 
-The prize is $1,000 in that country's money. One prize for each country DAI supports.
+## Pay with x402
 
-## How to enter
+A program can ask without opening this site. It calls `POST /api/x402/infer` with the question. The route answers HTTP 402 and names an exact $THERM transfer on Solana. The program pays that amount, puts the question in the memo, and retries with the signed transaction. When the answer is ready, any caller can read it at `GET /api/x402/data/<signature>`.
 
-It is free.
+## For builders
 
-1. Put your project on Colosseum.
-2. Open Thermopolium and submit the same project. You sign in with Telegram.
-3. Paste the link to your Colosseum page. We read the public page and fill in the name, the picture, and the description for you.
+If your Solana app spends $THERM this way, apply. Sign in with Telegram, name the app, say what it does, and paste an https link. There is no vote.
 
-Pick the chain you built on, and the country whose money you want the prize in.
-
-## The coin
-
-$THERM is this season's community coin. People who hold it help pick the winners. A bigger holding counts as a bigger say. You can also send the coin with a short note, and a helper on the site writes back. Those notes and answers live in the app, on the feed.
-
-## If you are not sure where to start
-
-The home page has a list of ideas, written in plain words, and a short set of rules. Questions go through Contact.
-
-See you on 28 September.
+The feed is still there. So is a new post.

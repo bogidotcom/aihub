@@ -1,15 +1,15 @@
 @import "tailwindcss";
 
 @theme {
-  /* Roman inscription capitals for headings/labels, a sturdy old-style serif for reading. */
-  --font-display: "Cinzel", "Trajan Pro", Georgia, serif;
-  --font-body: "Lora", Georgia, "Times New Roman", serif;
+  /* The unit is set in a text face. Interface chrome stays a plain sans.
+     Addresses and hashes stay mono. */
+  --font-display: "Newsreader", "Liberation Serif", serif;
+  --font-body: "Instrument Sans", "Liberation Sans", sans-serif;
   --font-mono: "JetBrains Mono", "SFMono-Regular", Menlo, monospace;
-  /* Architectural, not bubbly. */
-  --radius-lg: 0.4rem;
-  --radius-xl: 0.55rem;
-  --radius-2xl: 0.75rem;
-  --radius-3xl: 1rem;
+  --radius-lg: 0.15rem;
+  --radius-xl: 0.2rem;
+  --radius-2xl: 0.25rem;
+  --radius-3xl: 0.35rem;
 }
 
 /* Theme-driven colors — the actual values are set per time-of-day as inline
@@ -34,13 +34,14 @@ body {
   line-height: 1.6;
 }
 
-h1, h2, h3, h4, nav a, .font-display {
+h1, h2, h3, h4, .font-display {
   font-family: var(--font-display);
-  letter-spacing: 0.02em;
+  font-optical-sizing: auto;
+  letter-spacing: -0.02em;
 }
-/* Small caps labels read as carved inscriptions; real data (hashes, addresses, code) stays monospaced. */
-.font-mono { font-family: var(--font-display); }
-.font-mono.break-all, .mono-real, code, pre { font-family: var(--font-mono); }
+/* Labels share the text face. Real data (hashes, addresses, code) stays monospaced. */
+.font-mono { font-family: var(--font-display); letter-spacing: 0; }
+.font-mono.break-all, .mono-real, code, pre { font-family: var(--font-mono); letter-spacing: 0; }
 
 @layer components {
 .app-bg {
@@ -60,72 +61,47 @@ h1, h2, h3, h4, nav a, .font-display {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-/* ---- Liquid glass surface ---- */
+/* Flat plate. Opaque on purpose: blur and a double frame read as a glass template. */
 .glass {
   position: relative;
-  background: var(--surface);
-  backdrop-filter: blur(14px) saturate(1.15);
-  -webkit-backdrop-filter: blur(14px) saturate(1.15);
-  border: 1px solid var(--veil);
-  /* inscription-plaque frame: a second hairline set inside the edge */
-  box-shadow: inset 0 0 0 4px color-mix(in oklab, var(--bg-b) 45%, transparent),
-              inset 0 0 0 5px color-mix(in oklab, var(--accent-2) 22%, transparent),
-              0 12px 34px -14px rgb(90 60 30 / 0.28);
+  background: color-mix(in srgb, var(--bg-b) 92%, rgb(8 16 22));
+  border: 1px solid color-mix(in oklab, var(--accent-2) 32%, transparent);
+  box-shadow: none;
 }
 
-/* refractive top-edge highlight */
+/* New-post dialog. It sits outside ThemeFrame, so it carries its own solid field. */
+.compose-panel {
+  background: var(--bg-b);
+  color: var(--ink);
+  border: 1px solid var(--veil);
+  box-shadow: 0 24px 70px -24px rgb(0 0 0 / 0.65);
+}
+.compose-well {
+  background: color-mix(in srgb, var(--ink) 8%, var(--bg-b));
+  border: 1px solid var(--veil);
+  color: var(--ink);
+}
+
+/* One heat filament on the top edge of a plate. No cursor spotlight. */
 .glass::before {
   content: "";
   position: absolute;
   inset: 0 0 auto 0;
-  height: 1px;
-  border-radius: inherit;
-  background: linear-gradient(90deg, transparent 5%, color-mix(in oklab, var(--accent-2) 55%, white) 50%, transparent 95%);
+  height: 2px;
+  background: var(--accent);
+  opacity: 0.9;
   pointer-events: none;
 }
-
-/* cursor-following light refraction (driven by --mx / --my from JS) */
-.glass-live {
-  overflow: hidden;
-}
-.glass-live::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.4s ease;
-  background: radial-gradient(
-    420px circle at var(--mx, 50%) var(--my, 50%),
-    color-mix(in oklab, var(--accent) 16%, transparent),
-    transparent 65%
-  );
-}
-.glass-live:hover::after {
-  opacity: 1;
-}
+.no-filament::before { content: none; }
 } /* end @layer components */
 
-/* ---- Kinetic typography ---- */
+/* Section titles are the ink color. The amber word is reserved for the unit. */
 .text-liquid {
-  background: linear-gradient(100deg, var(--accent), var(--accent-2), var(--accent), var(--accent-2));
-  background-size: 300% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: liquid-flow 9s ease-in-out infinite;
+  color: var(--ink);
 }
 
-@keyframes liquid-flow {
-  0%, 100% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-}
-
-/* soft same-hue drop for the pastel display type */
 .type-soft {
-  /* cut-stone lettering: a pale lip below, a shadow above */
-  text-shadow: 0 0.03em 0 color-mix(in oklab, var(--bg-b) 80%, white), 0 -0.02em 0 rgb(58 36 22 / 0.28);
+  text-shadow: none;
 }
 
 /* The THERM mark is dark-on-light; flip it on the night palette. */
@@ -135,21 +111,7 @@ img[src$="therm-icon.svg"] { filter: var(--logo-filter, none); }
 /* Warm every photograph toward the same afternoon light. */
 .tinted { filter: sepia(0.28) saturate(1.08) contrast(1.02); }
 
-/* Greek-key band between full-screen sections. */
-.app-bg > section + section::before,
-.page-sections > section + section::before {
-  content: "";
-  position: absolute;
-  top: 0; left: 50%;
-  translate: -50% 0;
-  width: min(92%, 760px);
-  height: 14px;
-  opacity: 0.55;
-  pointer-events: none;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='14' viewBox='0 0 28 14'%3E%3Cpath d='M0 13V1h13v9H5V5h4' fill='none' stroke='%23b8862b' stroke-width='1.6' stroke-linecap='square'/%3E%3Cpath d='M14 13V1h13v9h-8V5h4' fill='none' stroke='%23b8862b' stroke-width='1.6' stroke-linecap='square'/%3E%3C/svg%3E") repeat-x center / auto 14px;
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
-}
+
 
 /* ---- Photo collage tiles ---- */
 @layer components {
@@ -217,7 +179,7 @@ img[src$="therm-icon.svg"] { filter: var(--logo-filter, none); }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .text-liquid, .animate-drift, .bird, .twinkle, .float-slow { animation: none; }
+  .animate-drift, .bird, .twinkle, .float-slow { animation: none; }
   .reveal { opacity: 1; transform: none; transition: none; }
 }
 
@@ -225,6 +187,11 @@ img[src$="therm-icon.svg"] { filter: var(--logo-filter, none); }
 @layer components {
 .tabbar {
   padding-bottom: env(safe-area-inset-bottom, 0);
+  overflow: hidden;
+}
+.tabbar a, .tabbar button {
+  min-width: 0;
+  overflow: hidden;
 }
 .no-scrollbar {
   scrollbar-width: none;
@@ -310,6 +277,47 @@ img[src$="therm-icon.svg"] { filter: var(--logo-filter, none); }
   text-align: left;
 }
 .prose-hub th { color: var(--ink); background: var(--chip); }
+
+/* ---- Markdown (feed reply) ---- */
+.prose-feed {
+  color: var(--ink-soft);
+  line-height: 1.6;
+  font-size: inherit;
+}
+.prose-feed > :first-child { margin-top: 0; }
+.prose-feed > :last-child { margin-bottom: 0; }
+.prose-feed p { margin: 0.6em 0; }
+.prose-feed a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.prose-feed strong, .prose-feed b { color: var(--ink); }
+.prose-feed ul, .prose-feed ol { margin: 0.6em 0; padding-left: 1.3em; }
+.prose-feed li { margin: 0.2em 0; }
+.prose-feed li::marker { color: var(--accent); }
+.prose-feed blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.2em 0.9em;
+  margin: 0.6em 0;
+  color: var(--ink);
+  font-style: italic;
+}
+.prose-feed code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: var(--chip);
+  border: 1px solid var(--veil);
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+  color: var(--ink);
+}
+.prose-feed pre {
+  background: rgb(15 23 42 / 0.85);
+  border: 1px solid var(--veil);
+  border-radius: 10px;
+  padding: 0.8em 1em;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.prose-feed pre code { background: none; border: none; padding: 0; color: #e2e8f0; }
+.prose-feed hr { border: none; border-top: 1px solid var(--veil); margin: 0.9em 0; }
 
 /* ---- Scrollbar ---- */
 ::-webkit-scrollbar {

@@ -1,3 +1,2 @@
-// Any chain is fine for the project itself — the one hard requirement is that it
-// uses DAI somehow (DAI Miner, DAI MCP, local-stable settlement, peer nodes).
+// Solana is the chain THERM payments settle on. The others stay so an older application can still name its chain.
 export const BLOCKCHAINS = ['Solana', 'Ethereum', 'Hydromancer', 'Base', 'Tempo', 'Arbitrum', 'Zcash', 'Robinhood Chain']

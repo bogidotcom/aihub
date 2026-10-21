@@ -23,7 +23,7 @@ export async function rpc(method, params = [], { timeoutMs = 15000 } = {}) {
       if (attempt < 2) await new Promise(r => setTimeout(r, 800 * (attempt + 1)))
     }
   }
-  throw lastErr
+  throw lastErr || new Error(`${method}: no response`)
 }
 
 // ---------- base58 (Bitcoin alphabet) ----------
@@ -133,10 +133,46 @@ export function associatedTokenAddress(owner, mint) {
 }
 
 export async function mintDecimals(mint) {
-  const info = await rpc('getAccountInfo', [mint, { encoding: 'base64', commitment: 'confirmed' }])
+  const info = await rpc('getAccountInfo', [mint, { encoding: 'jsonParsed', commitment: 'confirmed' }])
+  const decimals = info?.value?.data?.parsed?.info?.decimals
+  if (info?.value?.data?.parsed?.type !== 'mint' || decimals == null) throw new Error('mint account missing')
+  return decimals
+}
+
+const DBC_PROGRAM_ID = 'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN'
+const TOKEN_2022_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
+const SPL_TOKEN_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+// VirtualPool: 8 byte discriminator, 64 byte volatility tracker, config, creator, then base_mint.
+const DBC_BASE_MINT_OFFSET = 136
+
+let resolvedMint = null
+
+/**
+ * THERM_MINT is either the SPL mint or the Meteora Dynamic Bonding Curve pool
+ * the token launched on. Payments always use the base mint.
+ */
+export async function resolveThermMint(address) {
+  if (resolvedMint?.input === address) return resolvedMint
+  const info = await rpc('getAccountInfo', [address, { encoding: 'base64', commitment: 'confirmed' }])
+  const owner = info?.value?.owner
   const data = info?.value?.data?.[0]
-  if (!data) throw new Error('mint account missing')
-  return Buffer.from(data, 'base64')[44]
+  if (!owner || !data) throw new Error('mint account missing')
+  let mint = address
+  let pool = null
+  if (owner === DBC_PROGRAM_ID) {
+    const buf = Buffer.from(data, 'base64')
+    if (buf.length < DBC_BASE_MINT_OFFSET + 32) throw new Error('pool account too small')
+    mint = b58encode(buf.subarray(DBC_BASE_MINT_OFFSET, DBC_BASE_MINT_OFFSET + 32))
+    pool = address
+  } else if (owner !== SPL_TOKEN_ID && owner !== TOKEN_2022_ID) {
+    throw new Error('THERM_MINT is not a token mint')
+  }
+  const parsed = await rpc('getAccountInfo', [mint, { encoding: 'jsonParsed', commitment: 'confirmed' }])
+  const body = parsed?.value?.data?.parsed
+  if (body?.type !== 'mint' || body.info?.decimals == null) throw new Error('resolved address is not a mint')
+  if (parsed.value.owner !== SPL_TOKEN_ID && parsed.value.owner !== TOKEN_2022_ID) throw new Error('resolved address is not a mint')
+  resolvedMint = { input: address, address: mint, decimals: body.info.decimals, program: parsed.value.owner, pool }
+  return resolvedMint
 }
 
 function compactU16(n) {
@@ -180,19 +216,32 @@ export function compileLegacyTransaction({ payer, writable = [], readonly = [], 
   return Buffer.concat([compactU16(1), Buffer.alloc(64), message]).toString('base64')
 }
 
+function fail(code) {
+  const err = new Error(code)
+  err.code = code
+  return err
+}
+
 /**
  * Unsigned USDC/$THERM payment: create the treasury token account if needed,
  * transferChecked the exact amount, and attach the prompt as a memo.
+ * Throws NO_THERM when `owner` has no single token account that can cover `amountRaw`.
  */
 export async function buildTokenPayment({ owner, treasury, mint, amountRaw, decimals, memo }) {
+  const amount = BigInt(amountRaw)
+  if (amount <= 0n) throw fail('NO_THERM')
   const payer = b58decode(owner)
   const mintKey = b58decode(mint)
   const treasuryKey = b58decode(treasury)
-  const source = associatedTokenAddress(owner, mint)
-  const dest = associatedTokenAddress(treasury, mint)
   const token = TOKEN_PROGRAM()
+  const funded = (await tokenAccountsOf(owner, mint))
+    .filter(a => a.decimals === decimals && a.amount >= amount)
+    .sort((a, b) => (a.amount > b.amount ? -1 : 1))
+  if (!funded.length) throw fail('NO_THERM')
+  const source = b58decode(funded[0].address)
   const held = await tokenAccountsOf(treasury, mint)
   const createDest = held.length === 0
+  const dest = createDest ? associatedTokenAddress(treasury, mint) : b58decode(held[0].address)
   const writable = [source, dest]
   const readonly = [mintKey, token, MEMO_PROGRAM()]
   if (createDest) readonly.push(SYSTEM_PROGRAM(), ATA_PROGRAM(), treasuryKey)
@@ -206,12 +255,121 @@ export async function buildTokenPayment({ owner, treasury, mint, amountRaw, deci
   }
   const transfer = Buffer.alloc(10)
   transfer[0] = 12
-  transfer.writeBigUInt64LE(BigInt(amountRaw), 1)
+  transfer.writeBigUInt64LE(amount, 1)
   transfer[9] = decimals
   instructions.push({ programId: token, accounts: [source, mintKey, dest, payer], data: transfer })
   instructions.push({ programId: MEMO_PROGRAM(), accounts: [payer], data: Buffer.from(memo, 'utf8') })
   const { value } = await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])
-  return compileLegacyTransaction({ payer, writable, readonly, blockhash: value.blockhash, instructions })
+  const transaction = compileLegacyTransaction({ payer, writable, readonly, blockhash: value.blockhash, instructions })
+  return { transaction, blockhash: value.blockhash }
+}
+
+function readCompact(buf, offset) {
+  let n = 0, shift = 0, o = offset
+  for (let i = 0; i < 3; i++) {
+    if (o >= buf.length) return null
+    const b = buf[o++]
+    n += (b & 0x7f) << shift
+    if ((b & 0x80) === 0) return [n, o]
+    shift += 7
+  }
+  return null
+}
+
+const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+const MEMO_PROGRAM_ID_SET = new Set([
+  'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr',
+  'Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo',
+])
+
+/** transferChecked legs and memo strings inside a one-signature legacy transaction. */
+export function readLegacyPayment(base64, mint) {
+  let raw
+  try { raw = Buffer.from(base64, 'base64') } catch { return null }
+  if (raw.length < 66 || raw[0] !== 1) return null
+  const signature = b58encode(raw.subarray(1, 65))
+  const message = raw.subarray(65)
+  const count = readCompact(message, 3)
+  if (!count) return null
+  const [n, keyAt] = count
+  if (n < 1 || n > 64 || message.length < keyAt + n * 32 + 32) return null
+  const keys = []
+  for (let i = 0; i < n; i++) keys.push(b58encode(message.subarray(keyAt + i * 32, keyAt + (i + 1) * 32)))
+  let o = keyAt + n * 32 + 32
+  const ic = readCompact(message, o)
+  if (!ic) return { signature, transfers: [], memos: [] }
+  o = ic[1]
+  const tokenIndex = keys.indexOf(TOKEN_PROGRAM_ID)
+  const mintIndex = mint ? keys.indexOf(mint) : -1
+  const transfers = []
+  const memos = []
+  for (let i = 0; i < ic[0]; i++) {
+    if (o >= message.length) break
+    const program = message[o++]
+    const ac = readCompact(message, o)
+    if (!ac) break
+    const accounts = message.subarray(ac[1], ac[1] + ac[0])
+    o = ac[1] + ac[0]
+    const dc = readCompact(message, o)
+    if (!dc) break
+    const data = message.subarray(dc[1], dc[1] + dc[0])
+    o = dc[1] + dc[0]
+    const programId = keys[program]
+    if (programId && MEMO_PROGRAM_ID_SET.has(programId)) memos.push(data.toString('utf8'))
+    // transferChecked: source, mint, destination, authority. Amount is a u64 at byte 1.
+    if (program === tokenIndex && mintIndex >= 0 && data.length >= 10 && data[0] === 12 && accounts.length >= 4 && accounts[1] === mintIndex) {
+      transfers.push({ dest: keys[accounts[2]] || '', amount: data.readBigUInt64LE(1) })
+    }
+  }
+  return { signature, transfers, memos }
+}
+
+function legacyTransfers(base64, mint) {
+  const pay = readLegacyPayment(base64, mint)
+  return pay ? pay.transfers.map(t => t.dest).filter(Boolean) : []
+}
+
+/**
+ * The transaction pays `amountRaw` (or more) of `mint` to the treasury and
+ * carries memo text. Returns the parsed payment, or null when it does not.
+ */
+export async function paymentCoversTreasury(base64, { mint, treasury, amountRaw }) {
+  const pay = readLegacyPayment(base64, mint)
+  if (!pay) return null
+  let need
+  try { need = BigInt(amountRaw) } catch { return null }
+  if (need <= 0n) return null
+  const ata = b58encode(associatedTokenAddress(treasury, mint))
+  for (const t of pay.transfers) {
+    if (!t.dest || t.amount < need) continue
+    if (t.dest === ata) return pay
+    try {
+      const info = await rpc('getAccountInfo', [t.dest, { encoding: 'jsonParsed', commitment: 'confirmed' }])
+      const parsed = info?.value?.data?.parsed?.info
+      if (parsed?.mint === mint && parsed?.owner === treasury) return pay
+    } catch { /* a relay must not accept a transfer it could not check */ }
+  }
+  return null
+}
+
+/** True when a transferChecked in this signed transaction pays the treasury's token account. */
+export async function paysTreasury(base64, { mint, treasury }) {
+  const ata = b58encode(associatedTokenAddress(treasury, mint))
+  for (const dest of legacyTransfers(base64, mint)) {
+    if (!dest) continue
+    if (dest === ata) return true
+    try {
+      const info = await rpc('getAccountInfo', [dest, { encoding: 'jsonParsed', commitment: 'confirmed' }])
+      const parsed = info?.value?.data?.parsed?.info
+      if (parsed?.mint === mint && parsed?.owner === treasury) return true
+    } catch { /* a relay must not broadcast a transfer we could not check */ }
+  }
+  return false
+}
+
+/** Broadcast a signed legacy transaction. Returns the signature. */
+export function submitTransaction(base64) {
+  return rpc('sendTransaction', [base64, { encoding: 'base64', preflightCommitment: 'confirmed' }], { timeoutMs: 30000 })
 }
 
 /** UI-unit balance of `owner` for `mint` (0 when they hold none). */

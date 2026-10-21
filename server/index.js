@@ -12,7 +12,6 @@ import { YOGA_PACKAGES, YOGA_SLOTS, VIBECODING_PROGRAMS } from './catalog.js'
 import { createOrder, fulfillOrder, markPaid, startWatcher, buildTonPayload, ALT_ADDRESSES, KGST, amountLabel, setNotifiers } from './payments.js'
 import { startBot, sendTo, notifyAdmins, getBotUsername } from './bot.js'
 import { startTherm, createProject } from './therm.js'
-import { previewHandler, resolveColosseum } from './colosseum.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 3460)
@@ -119,8 +118,6 @@ app.get('/api/blog/:slug', (req, res) => {
   if (!post) return res.status(404).json({ error: 'NOT_FOUND' })
   res.json({ post })
 })
-
-app.get('/api/colosseum/preview', previewHandler)
 
 // ---------- events ----------
 function eventCopy(e) {
@@ -244,29 +241,8 @@ app.post('/api/contact', async (req, res) => {
       if (dupe) return res.status(409).json({ error: 'ALREADY_SUBMITTED' })
     }
   }
-  let text = String(message)
-  let project = req.body?.project
-  if (topic === 'thermopolium-submission' && project?.link) {
-    const looked = await resolveColosseum(project.link)
-    if (looked.status === 'ok') {
-      project = { ...project, colosseum: looked.project }
-      const c = looked.project
-      const team = (c.members || []).map(m => m.name || m.username).filter(Boolean).join(', ')
-      text += [
-        '',
-        `Pulled from Colosseum (${c.slug}):`,
-        [c.name, c.category, c.country].filter(Boolean).join(' · '),
-        (c.description || '').slice(0, 700),
-        `Repo: ${c.repoLink || '—'}`,
-        `Website: ${c.website || '—'}`,
-        `X: ${c.twitter ? '@' + c.twitter.replace(/^@/, '') : '—'}`,
-        team ? `Team: ${team}` : '',
-        c.hackathon?.name ? `Hackathon: ${c.hackathon.name}` : '',
-      ].filter(line => line !== '').join('\n')
-    } else {
-      text += `\n\nColosseum lookup: ${looked.status}`
-    }
-  }
+  const text = String(message)
+  const project = req.body?.project
   db.prepare('INSERT INTO contact_messages (user_id, name, contact, message, topic) VALUES (?,?,?,?,?)')
     .run(req.user?.id ?? null, name, contact, text, topic)
   if (topic === 'thermopolium-submission' && project) createProject(req.user.id, project)

@@ -56,7 +56,7 @@ function SiteFooter() {
   const { t } = useI18n()
   const cols = [
     { title: t('footer.explore'), links: [[t('nav.ideas'), '/#ideas'], [t('nav.therm'), '/app/therm'], [t('nav.blog'), '/blog'], [t('nav.contact'), '/#contact']] },
-    { title: t('footer.resources'), links: [['Colosseum World\'s Fair', 'https://colosseum.com/worldsfair'], ['DAI Miner — iamai.kg', 'https://iamai.kg'], ['Cyrene — cyreneai.com', 'https://cyreneai.com']] },
+    { title: t('footer.resources'), links: [['Job estimate', 'https://iamai.kg/docs/#jobs'], ['DAI Miner — iamai.kg', 'https://iamai.kg'], ['x402', 'https://www.x402.org/']] },
     { title: t('footer.connect'), links: [['Telegram Group', 'https://t.me/iamaihub'], ['X', 'https://x.com/crypttp'], ['Mini-App', 'https://t.me/iamaihubbot/start']] },
   ]
   return (

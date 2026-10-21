@@ -5,8 +5,8 @@ export function Logo({ className = '', textClassName = 'text-xl', to = '#home' }
   const classNames = `flex items-center gap-2.5 ${className}`
   const mark = (
     <>
-      <img src={media('therm-logo.svg')} alt="Thermopolium" className="h-10 w-10 object-contain" />
-      <span className={`font-bold text-ink ${textClassName}`}>Thermopolium</span>
+      <img src={media('therm-logo.svg')} alt="THERM" className="h-10 w-10 object-contain" />
+      <span className={`font-bold text-ink ${textClassName}`}>THERM</span>
     </>
   )
   if (to.startsWith('#')) return <a href={to} className={classNames}>{mark}</a>

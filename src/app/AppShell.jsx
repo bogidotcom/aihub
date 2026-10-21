@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
-import { CalendarDays, Megaphone, Calendar, Flame, MessagesSquare, PenLine, LayoutGrid } from 'lucide-react'
+import { CalendarDays, Megaphone, Calendar, Flame, MessagesSquare, PenLine } from 'lucide-react'
 import { ThemeFrame, useClock } from '../theme.jsx'
 import { useSession } from '../session.jsx'
 import { isTelegram, openTelegramLink } from '../telegram.js'
@@ -13,7 +13,6 @@ import { ComposeProvider, useCompose } from '../site/Compose.jsx'
 
 const NAV = [
   { to: '/app/events', icon: CalendarDays, label: 'tabs.events' },
-  { to: '/app/projects', icon: LayoutGrid, label: 'nav.projects' },
   { to: '/app/therm', icon: Flame, label: 'nav.therm' },
   { to: '/app/feed', icon: MessagesSquare, label: 'nav.feed' },
   { icon: PenLine, label: 'compose.title', compose: true },
@@ -64,7 +63,7 @@ function Brand({ compact }) {
   return (
     <>
       <img src={media('therm-logo.svg')} alt="" className={`${compact ? 'h-8 w-8' : 'h-9 w-9'} object-contain shrink-0`} />
-      <span className={`font-bold text-ink ${compact ? '' : 'text-xl'}`}>Thermopolium</span>
+      <span className={`font-bold text-ink ${compact ? 'text-sm' : 'text-xl'}`}>THERM</span>
     </>
   )
 }
@@ -78,18 +77,18 @@ function SideLink({ item, stacked }) {
     return (
       <button type="button" onClick={compose.open}
         className={`cursor-pointer ${stacked
-          ? 'flex flex-col items-center justify-center gap-1 py-2.5 px-1 text-[11px] text-center leading-tight text-ink-faint hover:text-ink'
+          ? 'flex flex-col items-center justify-center gap-1 py-2 px-0.5 min-w-0 w-full text-[10px] text-center leading-tight text-ink-faint hover:text-ink'
           : 'flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] text-ink-soft hover:bg-chip hover:text-ink text-left w-full'}`}>
-        {icon}{label}
+        {icon}<span className={stacked ? 'truncate w-full' : ''}>{label}</span>
       </button>
     )
   }
   return (
     <NavLink to={item.to}
       className={({ isActive }) => stacked
-        ? `flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] transition-colors ${isActive ? 'text-accent font-semibold' : 'text-ink-faint hover:text-ink'}`
+        ? `flex flex-col items-center justify-center gap-1 py-2 px-0.5 min-w-0 text-[10px] leading-tight transition-colors ${isActive ? 'text-accent font-semibold' : 'text-ink-faint hover:text-ink'}`
         : `flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] transition-colors ${isActive ? 'bg-chip text-accent font-semibold' : 'text-ink-soft hover:bg-chip hover:text-ink'}`}>
-      {icon}{label}
+      {icon}<span className={stacked ? 'truncate w-full' : ''}>{label}</span>
     </NavLink>
   )
 }
@@ -115,7 +114,7 @@ export default function AppShell() {
     <ComposeProvider>
     <ThemeFrame>
       {/* Desktop sidebar (Facebook-style) */}
-      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 z-50 flex-col glass rounded-none border-y-0 border-l-0 p-5">
+      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 z-50 flex-col glass no-filament rounded-none border-y-0 border-l-0 p-5">
         <Link to="/" className="flex items-center gap-2.5 px-2 mb-1">
           <Brand />
         </Link>
@@ -147,8 +146,8 @@ export default function AppShell() {
 
       {/* Mobile header */}
       <header className="md:hidden glass sticky top-0 z-50 rounded-none border-x-0 border-t-0">
-        <div className="max-w-2xl mx-auto px-4 h-14 flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2">
+        <div className="max-w-2xl mx-auto px-3 h-14 flex items-center justify-between gap-2 min-w-0">
+          <Link to="/" className="flex items-center gap-2 min-w-0">
             <Brand compact />
           </Link>
           <p className="font-mono text-[11px] text-ink-faint hidden sm:block">
@@ -170,7 +169,7 @@ export default function AppShell() {
       </header>
 
       {/* Content — offset right of the sidebar on desktop */}
-      <div className="md:pl-64">
+      <div className="md:pl-64 overflow-x-hidden">
         <main className={wide
           ? 'page-sections relative z-10 pb-24 md:pb-0'
           : 'relative z-10 max-w-2xl mx-auto px-4 py-6 pb-28 md:py-10 md:pb-16 lg:max-w-3xl'}>
