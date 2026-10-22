@@ -9,13 +9,13 @@ One therm of heat is 29.3 kilowatt-hours. That is 105,480,400 joules. On this si
 
 ## How a payment works
 
-You send $THERM on Solana. The note on the transfer is the question. The answer comes back on that transaction, and it is also posted on the feed.
+You send $THERM on Solana. The note on the transfer is the question. A separate reply wallet — never the one holding the treasury — sends your wallet back a receipt: 0.000000001 $THERM, one raw unit, with the answer written into *that* transfer's memo. A real transaction, not a line in a database. It is also posted on the feed, in full.
 
 The price is the job estimate. The server asks the DAI node, the same estimate described at https://iamai.kg/docs/#jobs, how many tokens the question needs. Divide by 100,000,000. That is the $THERM amount.
 
 ## Pay with x402
 
-A program can ask without opening this site. It calls `POST /api/x402/infer` with the question. The route answers HTTP 402 and names an exact $THERM transfer on Solana. The program pays that amount, puts the question in the memo, and retries with the signed transaction. When the answer is ready, any caller can read it at `GET /api/x402/data/<signature>`.
+A program can ask without opening this site. It calls `POST /api/x402/infer` with the question. The route answers HTTP 402 and names an exact $THERM transfer on Solana. The program pays that amount, puts the question in the memo, and retries with the signed transaction. When the answer is ready, any caller can read it at `GET /api/x402/data/<signature>` — or just watch the chain: the reply wallet sends it back the same way, memo and all.
 
 ## For builders
 

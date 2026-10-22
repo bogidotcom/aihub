@@ -159,6 +159,14 @@ for (const [column, decl] of [
 
 try { db.exec('ALTER TABLE events ADD COLUMN i18n TEXT') } catch { /* already added */ }
 
+// migration: the reply is now sent on-chain (dust $THERM + answer in the memo), not just stored
+for (const [column, decl] of [
+  ['reply_sig', 'TEXT'],       // signature of the reply transaction, once sent
+  ['reply_status', 'TEXT'],    // NULL | sent | error
+]) {
+  try { db.exec(`ALTER TABLE therm_posts ADD COLUMN ${column} ${decl}`) } catch { /* already added */ }
+}
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS wallet_links (
   wallet TEXT PRIMARY KEY,

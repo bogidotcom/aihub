@@ -1,13 +1,21 @@
-// $THERM: send the token to the treasury with a memo → the memo becomes a signed DAI job → the answer is published.
+// $THERM: send the token to the treasury with a memo → the memo becomes a signed DAI job → the
+// answer comes back on-chain — dust $THERM + the answer in the memo, from a dedicated reply
+// wallet, never the treasury. therm_posts keeps a full copy of every prompt and answer too, as
+// a backup and to render the feed, but the db is no longer the primary way the answer is delivered.
 //
 //   Solana (THERM → treasury, memo)  ──watch──▶  therm_posts  ──estimate/sign/publish──▶  DAI node
 //                                                     ▲                                        │
 //                                                     └────────────── poll result ◀────────────┘
+//                                                     │
+//                                                     └──reply wallet──▶  Solana (dust $THERM → sender, answer in memo)
 //
 // Everything is idempotent on the transaction signature, so restarts and re-scans never double-spend DAI.
 import { db, getSetting, setSetting } from './db.js'
 import { requireAuth } from './auth.js'
-import { rpc, tokenAccountsOf, readIncomingTransfer, isSolanaAddress, buildTokenPayment, submitTransaction, paysTreasury, paymentCoversTreasury, resolveThermMint } from './solana.js'
+import {
+  rpc, tokenAccountsOf, readIncomingTransfer, isSolanaAddress, buildTokenPayment, submitTransaction,
+  paysTreasury, paymentCoversTreasury, resolveThermMint, loadSolanaKeypair, buildReplyPayment,
+} from './solana.js'
 import * as dai from './dai.js'
 
 const cfg = () => ({
@@ -19,7 +27,21 @@ const cfg = () => ({
   pollMs: Number(process.env.THERM_POLL_MS || 8000),
   backfill: process.env.THERM_BACKFILL === '1',
   jobTimeoutMs: Number(process.env.THERM_JOB_TIMEOUT_MS || 30 * 60 * 1000),
+  replyKeyFile: process.env.THERM_REPLY_KEY_FILE || '',
+  replyDustRaw: '1',   // smallest unit of the mint — the reply is a receipt, not a payment
 })
+
+// The reply wallet signs the on-chain replies. Separate from the treasury on purpose: the
+// treasury's key is never loaded here, so a compromised server can only drain this wallet's
+// small top-up, not the accumulated THERM balance.
+let replyWalletCache
+function replyWallet(c) {
+  if (replyWalletCache === undefined || replyWalletCache?.keyFile !== c.replyKeyFile) {
+    replyWalletCache = c.replyKeyFile ? loadSolanaKeypair(c.replyKeyFile) : null
+    if (replyWalletCache) replyWalletCache.keyFile = c.replyKeyFile
+  }
+  return replyWalletCache
+}
 export const thermConfigured = () => !!(cfg().mint && cfg().treasury)
 const publicBase = () => (process.env.WEB_APP_URL || 'https://iamai.kg/thermopolium').replace(/\/$/, '')
 const ESTIMATE_DOCS = 'https://iamai.kg/docs/#jobs'
@@ -231,6 +253,42 @@ async function pollJobs() {
   } finally { polling = false }
 }
 
+// ---------- 4. reply on-chain: dust $THERM + the answer in the memo, sent back to the asker ----------
+let replying = false
+let lastReplyAlert = 0
+async function sendReplies(notifyAdmins) {
+  if (replying) return
+  replying = true
+  try {
+    const c = cfg()
+    const wallet = replyWallet(c)
+    if (!wallet) return
+    const rows = db.prepare("SELECT * FROM therm_posts WHERE status = 'done' AND (reply_status IS NULL OR reply_status = 'error') ORDER BY id LIMIT 10").all()
+    if (!rows.length) return
+    let asset
+    try { asset = await resolveThermMint(c.mint) } catch (e) { log('reply mint', e.message); return }
+    for (const row of rows) {
+      try {
+        const memo = truncateBytes(row.answer || '', c.memoMax)
+        const built = await buildReplyPayment({
+          privateKey: wallet.privateKey, from: wallet.address, recipient: row.sender,
+          mint: asset.address, amountRaw: c.replyDustRaw, decimals: asset.decimals, memo,
+        })
+        const signature = await submitTransaction(built.transaction)
+        update(row.id, { reply_sig: signature, reply_status: 'sent' })
+        log(`↩ reply ${signature.slice(0, 10)}… to ${row.sender?.slice(0, 6)}… for ${row.sig.slice(0, 10)}…`)
+      } catch (e) {
+        update(row.id, { reply_status: 'error' })
+        log(`reply failed for ${row.sig.slice(0, 10)}…: ${e.code || ''} ${e.message}`)
+        if (e.code === 'REPLY_WALLET_EMPTY' && Date.now() - lastReplyAlert > 3600_000) {
+          lastReplyAlert = Date.now()
+          notifyAdmins?.(`⚠️ THERM reply wallet (${wallet.address}) is out of SOL or $THERM — replies are queued but not sending. Top it up.`)
+        }
+      }
+    }
+  } finally { replying = false }
+}
+
 // ---------- public views ----------
 const shortErr = (row) => {
   if (row.status === 'insufficient') return row.error || 'not enough THERM for this prompt'
@@ -240,6 +298,7 @@ const shortErr = (row) => {
 export const postView = (r) => ({
   sig: r.sig, sender: r.sender, therm: r.therm, memo: r.memo, status: r.status,
   answer: r.answer || null, note: shortErr(r), block_time: r.block_time, created_at: r.created_at, job_id: r.job_id || null,
+  replySig: r.reply_sig || null, replyStatus: r.reply_status || null,
 })
 
 export function createProject(userId, p) {
@@ -279,6 +338,7 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
       configured: thermConfigured(), network: 'solana',
       mint: asset?.address || null, pool: asset?.pool || null, decimals: asset?.decimals ?? null,
       treasury: cc.treasury || null,
+      replyWallet: replyWallet(cc)?.address || null,
       tokensPerTherm: cc.tokensPerTherm, memoMaxBytes: cc.memoMax,
       posts: db.prepare("SELECT COUNT(*) n FROM therm_posts WHERE hidden = 0 AND status != 'no_memo'").get().n,
       x402: {
@@ -511,7 +571,7 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(sig)) return res.status(400).json({ error: 'BAD_SIG' })
     const row = db.prepare('SELECT * FROM therm_posts WHERE sig = ? AND hidden = 0').get(sig)
     if (!row) return res.status(202).json({ signature: sig, status: 'pending', answer: null })
-    res.json({ signature: row.sig, status: row.status, answer: row.answer || null, memo: row.memo })
+    res.json({ signature: row.sig, status: row.status, answer: row.answer || null, memo: row.memo, replySig: row.reply_sig || null })
   })
 
   app.post('/api/admin/therm/:sig/hide', requireAdmin, (req, res) => {
@@ -527,8 +587,9 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     log('THERM_MINT / THERM_TREASURY not set — watcher idle (API still serves the feed and top 10)')
   } else {
     const w = dai.loadWallet()
+    const rw = replyWallet(c)
     resolveThermMint(c.mint)
-      .then(a => log(`watching ${c.treasury} for mint ${a.address}${a.pool ? ` (pool ${a.pool})` : ''} — 1 THERM = ${c.tokensPerTherm.toLocaleString()} AI tokens; DAI wallet ${w ? w.address : 'NOT CONFIGURED (jobs will wait)'}`))
+      .then(a => log(`watching ${c.treasury} for mint ${a.address}${a.pool ? ` (pool ${a.pool})` : ''} — 1 THERM = ${c.tokensPerTherm.toLocaleString()} AI tokens; DAI wallet ${w ? w.address : 'NOT CONFIGURED (jobs will wait)'}; reply wallet ${rw ? rw.address : 'NOT CONFIGURED (replies will wait)'}`))
       .catch(e => log('mint', e.message))
     if (w && w.address !== w.derived) log(`note: DAI_ADDRESS (${w.address}) differs from the key-derived address (${w.derived})`)
   }
@@ -537,6 +598,7 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     await scanChain()
     await publishPending(notifyAdmins)
     await pollJobs()
+    await sendReplies(notifyAdmins)
   }
   setInterval(tick, c.pollMs)
   setTimeout(tick, 1500)

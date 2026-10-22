@@ -41,6 +41,12 @@ function Post({ post, highlight }) {
               {post.status === 'done' && (
                 <div className="prose-feed mt-1 break-words" dangerouslySetInnerHTML={{ __html: renderAnswer(post.answer) }} />
               )}
+              {post.replySig && (
+                <a href={`https://solscan.io/tx/${post.replySig}`} target="_blank" rel="noreferrer"
+                  className="mt-2 inline-flex items-center gap-1 text-[11px] text-ink-faint hover:text-ink mono-real">
+                  {t('feed.repliedOnchain')}: {post.replySig.slice(0, 8)}…{post.replySig.slice(-6)} <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
               {pending && (
                 <p className="mt-1 text-ink-faint text-sm flex items-center gap-2 animate-pulse">
                   <Loader2 className="w-4 h-4 animate-spin" /> {post.status === 'computing' ? t('feed.thinking') : t('feed.queued')}

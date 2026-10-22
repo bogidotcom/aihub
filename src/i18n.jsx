@@ -14,8 +14,8 @@ const DICTS = {
       purposeLabel: 'use', qaCycles: 'question-and-answer cycles with AI',
       purposes: [
         { title: 'Inference on demand', body: 'A transfer on Solana is a job. The memo is the prompt. The price is the real estimate from the DAI node: tokens the job will use, divided by 100,000,000.', points: ['Priced from POST /api/estimate', '1 $THERM = 100,000,000 AI tokens', 'No account and no API key'] },
-        { title: 'The reply comes back in the memo', body: 'Send $THERM to the treasury with the prompt in the memo. The answer is stored against that transaction and shown on the feed. Look it up by the signature.', points: ['Memo up to 500 bytes', 'The feed is the public log', 'Any answer is addressable by its transaction hash'] },
-        { title: 'A reply any contract can read', body: 'The same answer is a data call. Poll it by signature and pass the text into a Solana instruction. The chain paid for the job. Your program consumes the result.', points: ['GET /api/x402/data/:signature', 'JSON, ready to put in instruction data', 'The transfer and the reply share one signature'] },
+        { title: 'The reply comes back in the memo', body: 'Send $THERM to the treasury with the prompt in the memo. A dedicated reply wallet sends your wallet back a receipt — 0.000000001 $THERM — with the answer in its memo. A real transfer, not a database row. The feed mirrors it too.', points: ['Memo up to 500 bytes, both ways', 'A separate reply wallet signs it — never the treasury', 'Any answer is addressable by its transaction hash'] },
+        { title: 'A reply any contract can read', body: 'The answer is sent, not just stored. A transferChecked carries it in the memo, so any Solana program can read it directly off the chain — no account, no API key. GET /api/x402/data/:signature still works too, for polling off-chain.', points: ['A transferChecked with the answer as its memo', 'No account, no API key — read it like any transaction', 'GET /api/x402/data/:signature for off-chain polling'] },
         { title: 'Pay with Solana x402', body: 'An HTTP request can ask for the same job and get a 402. The challenge is an exact THERM transfer on Solana. The amount is the estimate, not a flat fee. Retry with the signed transaction.', points: ['POST /api/x402/infer', 'Scheme exact, network solana, asset THERM', 'PAYMENT-REQUIRED, then PAYMENT-SIGNATURE'] },
       ],
       unitTitle: 'One therm',
@@ -34,7 +34,7 @@ const DICTS = {
       badHash: 'That does not look like a Solana transaction hash.',
       empty: 'No posts yet. Send $THERM with a memo to the Thermopolium wallet and it will appear here.',
       thinking: 'AI is thinking…', queued: 'Waiting for the DAI network…', more: 'Load more',
-      sent: 'sent {n}', onDai: 'answered on DAI',
+      sent: 'sent {n}', onDai: 'answered on DAI', repliedOnchain: 'reply sent on-chain',
     },
     compose: {
       fab: 'Ask AI', title: 'New post', placeholder: 'Ask the AI anything…',
@@ -243,8 +243,8 @@ const DICTS = {
       purposeLabel: 'назначение', qaCycles: 'циклов «вопрос — ответ» с AI',
       purposes: [
         { title: 'Инференс по запросу', body: 'Перевод в Solana — это задача. Memo — промпт. Цена — живая оценка узла DAI: сколько токенов уйдёт на задачу, делённое на 100 000 000.', points: ['Цена из POST /api/estimate', '1 $THERM = 100 000 000 AI-токенов', 'Без аккаунта и без API-ключа'] },
-        { title: 'Ответ возвращается в memo', body: 'Отправьте $THERM на казну, промпт положите в memo. Ответ хранится рядом с этой транзакцией и виден в ленте. Ищите по подписи.', points: ['Memo до 500 байт', 'Лента — публичный журнал', 'Любой ответ находится по хешу транзакции'] },
-        { title: 'Ответ, который прочитает контракт', body: 'Тот же ответ — это данные. Запросите его по подписи и положите текст в инструкцию Solana. Сеть уже оплатила задачу. Программа забирает результат.', points: ['GET /api/x402/data/:signature', 'JSON, готовый для данных инструкции', 'Перевод и ответ делят одну подпись'] },
+        { title: 'Ответ возвращается в memo', body: 'Отправьте $THERM на казну, промпт — в memo. Отдельный кошелёк для ответов пришлёт вашему кошельку квитанцию — 0,000000001 $THERM — с ответом в своём memo. Настоящий перевод, а не строка в базе. В ленте тоже виден.', points: ['Memo до 500 байт в обе стороны', 'Подписывает отдельный кошелёк — не казна', 'Любой ответ находится по хешу транзакции'] },
+        { title: 'Ответ, который прочитает контракт', body: 'Ответ не просто хранится — он отправлен. transferChecked несёт его в memo, и любая программа Solana читает его прямо из сети — без аккаунта и API-ключа. GET /api/x402/data/:signature по-прежнему работает — для опроса вне сети.', points: ['transferChecked с ответом в memo', 'Без аккаунта и API-ключа — читается как любая транзакция', 'GET /api/x402/data/:signature для опроса вне сети'] },
         { title: 'Оплата через Solana x402', body: 'HTTP-запрос может попросить ту же задачу и получить 402. Челлендж — точный перевод THERM в Solana. Сумма берётся из оценки, это не плоский тариф. Повторите запрос с подписанной транзакцией.', points: ['POST /api/x402/infer', 'Схема exact, сеть solana, актив THERM', 'Сначала PAYMENT-REQUIRED, затем PAYMENT-SIGNATURE'] },
       ],
       unitTitle: 'Один терм',
@@ -263,7 +263,7 @@ const DICTS = {
       badHash: 'Это не похоже на хеш транзакции Solana.',
       empty: 'Пока нет постов. Отправьте $THERM с memo на кошелёк Thermopolium — и он появится здесь.',
       thinking: 'AI думает…', queued: 'Ждём сеть DAI…', more: 'Показать ещё',
-      sent: 'отправил {n}', onDai: 'ответ в сети DAI',
+      sent: 'отправил {n}', onDai: 'ответ в сети DAI', repliedOnchain: 'ответ отправлен в сети',
     },
     compose: {
       fab: 'Спросить AI', title: 'Новый пост', placeholder: 'Спросите AI о чём угодно…',

@@ -1,6 +1,7 @@
 // Minimal Solana JSON-RPC client + the few pieces of chain logic Thermopolium needs.
 // Raw fetch on purpose: no @solana/web3.js, so the service stays a 3-package install.
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 
 const rpcUrl = () => process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
@@ -101,6 +102,18 @@ export const isSolanaAddress = (s) => {
   try { return b58decode(s).length === 32 } catch { return false }
 }
 
+// ed25519 keypair from a PEM file, as a Solana signer (base58 address = raw public key).
+// Used for wallets this server signs with itself (the reply wallet) — never the treasury,
+// which stays receive-only and never has its key loaded here.
+export function loadSolanaKeypair(pemPath) {
+  if (!pemPath) return null
+  let pem
+  try { pem = fs.readFileSync(pemPath, 'utf8') } catch { return null }
+  const privateKey = crypto.createPrivateKey(pem)
+  const spki = crypto.createPublicKey(privateKey).export({ type: 'spki', format: 'der' })
+  return { privateKey, address: b58encode(spki.subarray(spki.length - 32)) }
+}
+
 // ed25519 verify for wallet signMessage() proofs (Phantom & co sign the raw UTF-8 bytes).
 const SPKI_ED25519_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 export function verifyWalletSignature(address, message, signature) {
@@ -186,8 +199,7 @@ function compactU16(n) {
   return Buffer.from(out)
 }
 
-// Legacy transaction the wallet can sign. One signature slot, left empty.
-export function compileLegacyTransaction({ payer, writable = [], readonly = [], blockhash, instructions }) {
+function buildLegacyMessage({ payer, writable = [], readonly = [], blockhash, instructions }) {
   const keys = [Buffer.from(payer), ...writable.map(k => Buffer.from(k)), ...readonly.map(k => Buffer.from(k))]
   const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i])
   const indexOf = (buf) => {
@@ -205,7 +217,7 @@ export function compileLegacyTransaction({ payer, writable = [], readonly = [], 
       ix.data,
     ])
   })
-  const message = Buffer.concat([
+  return Buffer.concat([
     Buffer.from([1, 0, readonly.length]),
     compactU16(keys.length),
     Buffer.concat(keys),
@@ -213,7 +225,17 @@ export function compileLegacyTransaction({ payer, writable = [], readonly = [], 
     compactU16(ixs.length),
     ...ixs,
   ])
-  return Buffer.concat([compactU16(1), Buffer.alloc(64), message]).toString('base64')
+}
+
+// Legacy transaction a wallet can sign. One signature slot, left empty.
+export function compileLegacyTransaction(opts) {
+  return Buffer.concat([compactU16(1), Buffer.alloc(64), buildLegacyMessage(opts)]).toString('base64')
+}
+
+// Legacy transaction signed here, with a key this server holds (the reply wallet — never the treasury).
+export function signLegacyTransaction({ privateKey, ...opts }) {
+  const message = buildLegacyMessage(opts)
+  return Buffer.concat([compactU16(1), crypto.sign(null, message, privateKey), message]).toString('base64')
 }
 
 function fail(code) {
@@ -261,6 +283,41 @@ export async function buildTokenPayment({ owner, treasury, mint, amountRaw, deci
   instructions.push({ programId: MEMO_PROGRAM(), accounts: [payer], data: Buffer.from(memo, 'utf8') })
   const { value } = await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])
   const transaction = compileLegacyTransaction({ payer, writable, readonly, blockhash: value.blockhash, instructions })
+  return { transaction, blockhash: value.blockhash }
+}
+
+/**
+ * The reply: dust $THERM transferChecked from the reply wallet back to `recipient`, with the
+ * AI's answer as the memo — signed here, ready to broadcast. `recipient` must already hold a
+ * token account for `mint` (they just paid from one). Throws REPLY_WALLET_EMPTY when the reply
+ * wallet itself has no funded account, RECIPIENT_NO_ATA when the recipient's account is gone.
+ */
+export async function buildReplyPayment({ privateKey, from, recipient, mint, amountRaw, decimals, memo }) {
+  const amount = BigInt(amountRaw)
+  if (amount <= 0n) throw fail('NO_DUST')
+  const payer = b58decode(from)
+  const mintKey = b58decode(mint)
+  const token = TOKEN_PROGRAM()
+  const funded = (await tokenAccountsOf(from, mint))
+    .filter(a => a.decimals === decimals && a.amount >= amount)
+    .sort((a, b) => (a.amount > b.amount ? -1 : 1))
+  if (!funded.length) throw fail('REPLY_WALLET_EMPTY')
+  const source = b58decode(funded[0].address)
+  const destHeld = await tokenAccountsOf(recipient, mint)
+  if (!destHeld.length) throw fail('RECIPIENT_NO_ATA')
+  const dest = b58decode(destHeld[0].address)
+  const writable = [source, dest]
+  const readonly = [mintKey, token, MEMO_PROGRAM()]
+  const transfer = Buffer.alloc(10)
+  transfer[0] = 12
+  transfer.writeBigUInt64LE(amount, 1)
+  transfer[9] = decimals
+  const instructions = [
+    { programId: token, accounts: [source, mintKey, dest, payer], data: transfer },
+    { programId: MEMO_PROGRAM(), accounts: [payer], data: Buffer.from(memo, 'utf8') },
+  ]
+  const { value } = await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])
+  const transaction = signLegacyTransaction({ privateKey, payer, writable, readonly, blockhash: value.blockhash, instructions })
   return { transaction, blockhash: value.blockhash }
 }
 

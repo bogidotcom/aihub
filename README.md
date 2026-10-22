@@ -15,17 +15,20 @@ cd server && npm i && npm run dev
 npm i && npm run dev
 ```
 
-## $THERM: memo → AI answer
+## $THERM: memo → AI answer → reply on-chain
 
-A watcher polls the treasury's THERM token account on Solana. A transfer with a memo becomes a **signed DAI compute job** (memo = prompt, `1 THERM = 100,000,000 AI tokens`); the answer is stored and shown on the feed. The price comes from `POST /api/estimate` on the DAI node (https://iamai.kg/docs/#jobs). A node without that route falls back to a local count of the prompt.
+A watcher polls the treasury's THERM token account on Solana. A transfer with a memo becomes a **signed DAI compute job** (memo = prompt, `1 THERM = 100,000,000 AI tokens`). The reply is not just a database row: once the job is done, a **dedicated reply wallet** (never the treasury) sends the asker's wallet back `0.000000001 THERM` — one raw unit, a receipt, not a payment — with the answer in *that* transfer's memo (truncated to the same 500 bytes as the prompt). It's a real `transferChecked` any Solana program can read directly, not an HTTP call. The price comes from `POST /api/estimate` on the DAI node (https://iamai.kg/docs/#jobs). A node without that route falls back to a local count of the prompt.
 
-Solana x402: `POST /api/x402/infer` with `{prompt}` and no payment returns **402** and a `PAYMENT-REQUIRED` header. The body is an exact-scheme challenge: asset is the THERM mint, `payTo` is the treasury, `maxAmountRequired` is the estimate in raw units, and `extra.memo` is the prompt. Retry with `PAYMENT-SIGNATURE` or `X-PAYMENT`, base64 JSON `{ "payload": { "transaction": "<signed legacy tx>" } }`. The transferChecked must pay the treasury at least that raw amount and the memo must equal the prompt. The answer for a signature is `GET /api/x402/data/:sig`. `GET /api/therm/config` lists the same routes. `POST /api/therm/vote` returns 410.
+SQLite (`therm_posts`) still keeps a full, untruncated copy of every prompt and answer — it's the backup and what renders the feed — but it's no longer the primary way the answer is delivered; the on-chain reply is. This is unified across every entry point (a raw memo transfer, `POST /api/therm/pay`, or `POST /api/x402/infer`): whichever way a job comes in, it ends up as one `therm_posts` row and gets the same on-chain reply once it's done.
+
+Solana x402: `POST /api/x402/infer` with `{prompt}` and no payment returns **402** and a `PAYMENT-REQUIRED` header. The body is an exact-scheme challenge: asset is the THERM mint, `payTo` is the treasury, `maxAmountRequired` is the estimate in raw units, and `extra.memo` is the prompt. Retry with `PAYMENT-SIGNATURE` or `X-PAYMENT`, base64 JSON `{ "payload": { "transaction": "<signed legacy tx>" } }`. The transferChecked must pay the treasury at least that raw amount and the memo must equal the prompt. The answer for a signature is `GET /api/x402/data/:sig` (includes `replySig` once the on-chain reply is sent). `GET /api/therm/config` lists the same routes plus the reply wallet's address. `POST /api/therm/vote` returns 410.
 
 The ecosystem list is `GET /api/therm/projects`, newest first. An application is the Telegram form: name, app, what it does, https link. It does not import a page from anywhere else.
 
 `THERM_MINT` may be the SPL mint or the Meteora Dynamic Bonding Curve pool the token launched on. The API reads the pool's base mint and uses that for transfers, the watcher, and x402. With `THERM_MINT`/`THERM_TREASURY` empty the watcher stays idle and the rest of the site works. See `deploy/thermopolium.env.example`.
 
 DAI wallet for jobs: `node dai-wallet.mjs generate|address|register|status` (in `server/`).
+Reply wallet for on-chain answers: `node reply-wallet.mjs generate|address|balance` (in `server/`) — deliberately a separate hot key from the treasury (which stays receive-only), so a compromised server can only drain this wallet's small SOL/THERM top-up, never the accumulated treasury balance.
 
 ## Deploy (hk → iamai.kg/thermopolium)
 
