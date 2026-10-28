@@ -58,6 +58,13 @@ function x402Cors(res) {
   res.set('Access-Control-Expose-Headers', 'PAYMENT-REQUIRED')
 }
 
+function fail(code, cause) {
+  const err = new Error(cause ? `${code}: ${cause.message}` : code)
+  err.code = code
+  if (cause) err.cause = cause
+  return err
+}
+
 const now = () => new Date().toISOString()
 // created_at comes from SQLite's CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", no zone);
 // updated_at is always written by now() above (already a full ISO string with "Z").
@@ -301,6 +308,114 @@ export const postView = (r) => ({
   replySig: r.reply_sig || null, replyStatus: r.reply_status || null,
 })
 
+// ---------- shared pricing / x402 — used by the HTTP routes and the MCP tools alike ----------
+export async function pricePrompt(prompt) {
+  const cc = cfg()
+  const est = await dai.estimate(prompt)
+  const up6 = (n) => Math.ceil(n * 1e6) / 1e6
+  const suggested = Math.max(up6((est.recommendedTokens / cc.tokensPerTherm) * 1.1), 0.000001)
+  return { cc, est, suggested, up6 }
+}
+
+export async function thermStatus() {
+  const cc = cfg()
+  let asset = null
+  if (cc.mint) {
+    try { asset = await resolveThermMint(cc.mint) } catch (e) { log('status mint', e.message) }
+  }
+  return {
+    configured: thermConfigured(), network: 'solana',
+    mint: asset?.address || null, pool: asset?.pool || null, decimals: asset?.decimals ?? null,
+    treasury: cc.treasury || null,
+    replyWallet: replyWallet(cc)?.address || null,
+    tokensPerTherm: cc.tokensPerTherm, memoMaxBytes: cc.memoMax,
+    mcp: `${publicBase()}/api/mcp`,
+    x402: {
+      scheme: 'exact', network: 'solana', asset: asset?.address || null, payTo: cc.treasury || null,
+      infer: `${publicBase()}/api/x402/infer`, data: `${publicBase()}/api/x402/data`, estimate: ESTIMATE_DOCS,
+    },
+  }
+}
+
+/**
+ * The x402 'accepts' challenge for a prompt: price it, resolve the mint, build the exact-scheme
+ * body. Thrown error codes: NOT_CONFIGURED, EMPTY, TOO_LONG, ESTIMATE_UNAVAILABLE, CHAIN_UNAVAILABLE.
+ */
+export async function buildX402Challenge(prompt) {
+  const cc = cfg()
+  if (!thermConfigured()) throw fail('NOT_CONFIGURED')
+  if (!prompt) throw fail('EMPTY')
+  if (Buffer.byteLength(prompt, 'utf8') > cc.memoMax) throw fail('TOO_LONG')
+  let priced
+  try { priced = await pricePrompt(prompt) } catch (e) { throw fail('ESTIMATE_UNAVAILABLE', e) }
+  const { est, suggested } = priced
+  let asset
+  try { asset = await resolveThermMint(cc.mint) } catch (e) { throw fail('CHAIN_UNAVAILABLE', e) }
+  const decimals = asset.decimals
+  const raw = thermToRaw(suggested, decimals)
+  const challenge = {
+    x402Version: 1,
+    error: 'PAYMENT-SIGNATURE header is required',
+    accepts: [{
+      scheme: 'exact',
+      network: 'solana',
+      maxAmountRequired: raw,
+      resource: `${publicBase()}/api/x402/infer`,
+      description: `THERM inference. ${est.recommendedTokens} AI tokens from ${ESTIMATE_DOCS}.`,
+      mimeType: 'application/json',
+      payTo: cc.treasury,
+      maxTimeoutSeconds: 120,
+      asset: asset.address,
+      extra: {
+        memo: prompt,
+        decimals,
+        tokensPerTherm: cc.tokensPerTherm,
+        tokens: { min: est.minTokens, recommended: est.recommendedTokens },
+        source: est.source,
+        estimate: ESTIMATE_DOCS,
+        therm: suggested,
+      },
+    }],
+  }
+  return { cc, est, suggested, asset, decimals, raw, challenge }
+}
+
+/**
+ * Verify a signed payment transaction against a challenge from buildX402Challenge and broadcast
+ * it. Thrown error codes: BAD_TX, PAYMENT_MISMATCH (carries `.challenge`), CHAIN_UNAVAILABLE.
+ */
+export async function settleX402Payment(prompt, transaction, priced) {
+  const { cc, asset, raw, suggested, est, challenge } = priced
+  if (typeof transaction !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(transaction) || transaction.length < 100 || transaction.length > 4000) {
+    throw fail('BAD_TX')
+  }
+  const pay = await paymentCoversTreasury(transaction, { mint: asset.address, treasury: cc.treasury, amountRaw: raw })
+  if (!pay || !pay.memos.some(m => m === prompt)) {
+    const e = fail('PAYMENT_MISMATCH')
+    e.challenge = challenge
+    throw e
+  }
+  const dataUrl = (sig) => `${publicBase()}/api/x402/data/${sig}`
+  try {
+    const signature = await submitTransaction(transaction)
+    return { signature, therm: suggested, tokens: est.recommendedTokens, source: est.source, data: dataUrl(signature) }
+  } catch (e) {
+    const msg = String(e.message || e)
+    if (/already been processed|already processed|duplicate/i.test(msg)) {
+      return { signature: pay.signature, therm: suggested, tokens: est.recommendedTokens, source: est.source, data: dataUrl(pay.signature) }
+    }
+    throw fail('CHAIN_UNAVAILABLE', e)
+  }
+}
+
+/** GET /api/x402/data/:sig, as a plain function. Throws BAD_SIG for a malformed signature. */
+export function getX402Data(sig) {
+  if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(String(sig || ''))) throw fail('BAD_SIG')
+  const row = db.prepare('SELECT * FROM therm_posts WHERE sig = ? AND hidden = 0').get(sig)
+  if (!row) return { signature: sig, status: 'pending', answer: null }
+  return { signature: row.sig, status: row.status, answer: row.answer || null, memo: row.memo, replySig: row.reply_sig || null }
+}
+
 export function createProject(userId, p) {
   const clean = (s, n) => String(s ?? '').trim().slice(0, n)
   const name = clean(p.name, 120)
@@ -329,28 +444,8 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
   const c = cfg()
 
   app.get('/api/therm/config', async (_req, res) => {
-    const cc = cfg()
-    let asset = null
-    if (cc.mint) {
-      try { asset = await resolveThermMint(cc.mint) } catch (e) { log('config mint', e.message) }
-    }
-    res.json({
-      configured: thermConfigured(), network: 'solana',
-      mint: asset?.address || null, pool: asset?.pool || null, decimals: asset?.decimals ?? null,
-      treasury: cc.treasury || null,
-      replyWallet: replyWallet(cc)?.address || null,
-      tokensPerTherm: cc.tokensPerTherm, memoMaxBytes: cc.memoMax,
-      posts: db.prepare("SELECT COUNT(*) n FROM therm_posts WHERE hidden = 0 AND status != 'no_memo'").get().n,
-      x402: {
-        scheme: 'exact',
-        network: 'solana',
-        asset: asset?.address || null,
-        payTo: cc.treasury || null,
-        infer: `${publicBase()}/api/x402/infer`,
-        data: `${publicBase()}/api/x402/data`,
-        estimate: 'https://iamai.kg/docs/#jobs',
-      },
-    })
+    const status = await thermStatus()
+    res.json({ ...status, posts: db.prepare("SELECT COUNT(*) n FROM therm_posts WHERE hidden = 0 AND status != 'no_memo'").get().n })
   })
 
   app.get('/api/therm/feed', (req, res) => {
@@ -379,14 +474,6 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     if (row?.sender) linkWallet(row.sender, req.user.id)
     res.json({ ok: true })
   })
-
-  const pricePrompt = async (prompt) => {
-    const cc = cfg()
-    const est = await dai.estimate(prompt)
-    const up6 = (n) => Math.ceil(n * 1e6) / 1e6
-    const suggested = Math.max(up6((est.recommendedTokens / cc.tokensPerTherm) * 1.1), 0.000001)
-    return { cc, est, suggested, up6 }
-  }
 
   app.post('/api/therm/quote', async (req, res) => {
     const prompt = String(req.body?.prompt || '').trim()
@@ -485,93 +572,47 @@ export function startTherm(app, { notifyAdmins, requireAdmin }) {
     res.sendStatus(204)
   })
 
+  const X402_STATUS = { NOT_CONFIGURED: 503, EMPTY: 400, TOO_LONG: 400, ESTIMATE_UNAVAILABLE: 502, CHAIN_UNAVAILABLE: 502 }
+
   app.post('/api/x402/infer', async (req, res) => {
     x402Cors(res)
-    const cc = cfg()
-    if (!thermConfigured()) return res.status(503).json({ error: 'NOT_CONFIGURED' })
     const prompt = String(req.body?.prompt || '').trim()
-    if (!prompt) return res.status(400).json({ error: 'EMPTY' })
-    if (Buffer.byteLength(prompt, 'utf8') > cc.memoMax) return res.status(400).json({ error: 'TOO_LONG' })
     let priced
-    try { priced = await pricePrompt(prompt) } catch (e) {
-      log('x402 estimate', e.message)
-      return res.status(502).json({ error: 'ESTIMATE_UNAVAILABLE' })
-    }
-    const { est, suggested } = priced
-    let asset
-    try { asset = await resolveThermMint(cc.mint) } catch (e) {
-      log('x402 mint', e.message)
-      return res.status(502).json({ error: 'CHAIN_UNAVAILABLE' })
-    }
-    const decimals = asset.decimals
-    const raw = thermToRaw(suggested, decimals)
-    const challenge = {
-      x402Version: 1,
-      error: 'PAYMENT-SIGNATURE header is required',
-      accepts: [{
-        scheme: 'exact',
-        network: 'solana',
-        maxAmountRequired: raw,
-        resource: `${publicBase()}/api/x402/infer`,
-        description: `THERM inference. ${est.recommendedTokens} AI tokens from ${ESTIMATE_DOCS}.`,
-        mimeType: 'application/json',
-        payTo: cc.treasury,
-        maxTimeoutSeconds: 120,
-        asset: asset.address,
-        extra: {
-          memo: prompt,
-          decimals,
-          tokensPerTherm: cc.tokensPerTherm,
-          tokens: { min: est.minTokens, recommended: est.recommendedTokens },
-          source: est.source,
-          estimate: ESTIMATE_DOCS,
-          therm: suggested,
-        },
-      }],
+    try { priced = await buildX402Challenge(prompt) } catch (e) {
+      if (e.cause) log('x402', e.code, e.cause.message)
+      return res.status(X402_STATUS[e.code] || 500).json({ error: e.code })
     }
     const header = String(req.get('PAYMENT-SIGNATURE') || req.get('X-PAYMENT') || '')
     if (!header) {
-      res.set('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(challenge)).toString('base64'))
-      return res.status(402).json(challenge)
+      res.set('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(priced.challenge)).toString('base64'))
+      return res.status(402).json(priced.challenge)
     }
     let payload
     try { payload = JSON.parse(Buffer.from(header, 'base64').toString('utf8')) } catch {
       return res.status(400).json({ error: 'BAD_PAYMENT' })
     }
     const transaction = payload?.payload?.transaction || payload?.transaction
-    if (typeof transaction !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(transaction) || transaction.length < 100 || transaction.length > 4000) {
-      return res.status(400).json({ error: 'BAD_TX' })
-    }
-    const pay = await paymentCoversTreasury(transaction, { mint: asset.address, treasury: cc.treasury, amountRaw: raw })
-    if (!pay || !pay.memos.some(m => m === prompt)) {
-      res.set('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(challenge)).toString('base64'))
-      return res.status(402).json({ ...challenge, error: 'PAYMENT_MISMATCH' })
-    }
-    const dataUrl = (sig) => `${publicBase()}/api/x402/data/${sig}`
     try {
-      const signature = await submitTransaction(transaction)
-      res.json({
-        signature, therm: suggested, tokens: est.recommendedTokens, source: est.source, data: dataUrl(signature),
-      })
+      res.json(await settleX402Payment(prompt, transaction, priced))
     } catch (e) {
-      const msg = String(e.message || e)
-      if (/already been processed|already processed|duplicate/i.test(msg)) {
-        return res.json({
-          signature: pay.signature, therm: suggested, tokens: est.recommendedTokens, source: est.source, data: dataUrl(pay.signature),
-        })
+      if (e.code === 'BAD_TX') return res.status(400).json({ error: 'BAD_TX' })
+      if (e.code === 'PAYMENT_MISMATCH') {
+        res.set('PAYMENT-REQUIRED', Buffer.from(JSON.stringify(e.challenge)).toString('base64'))
+        return res.status(402).json({ ...e.challenge, error: 'PAYMENT_MISMATCH' })
       }
-      log('x402 submit', msg)
+      log('x402 submit', e.cause?.message || e.message)
       res.status(502).json({ error: 'CHAIN_UNAVAILABLE' })
     }
   })
 
   app.get('/api/x402/data/:sig', (req, res) => {
     x402Cors(res)
-    const sig = String(req.params.sig || '')
-    if (!/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(sig)) return res.status(400).json({ error: 'BAD_SIG' })
-    const row = db.prepare('SELECT * FROM therm_posts WHERE sig = ? AND hidden = 0').get(sig)
-    if (!row) return res.status(202).json({ signature: sig, status: 'pending', answer: null })
-    res.json({ signature: row.sig, status: row.status, answer: row.answer || null, memo: row.memo, replySig: row.reply_sig || null })
+    try {
+      const data = getX402Data(req.params.sig)
+      res.status(data.status === 'pending' ? 202 : 200).json(data)
+    } catch (e) {
+      res.status(400).json({ error: e.code })
+    }
   })
 
   app.post('/api/admin/therm/:sig/hide', requireAdmin, (req, res) => {

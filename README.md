@@ -23,6 +23,17 @@ SQLite (`therm_posts`) still keeps a full, untruncated copy of every prompt and 
 
 Solana x402: `POST /api/x402/infer` with `{prompt}` and no payment returns **402** and a `PAYMENT-REQUIRED` header. The body is an exact-scheme challenge: asset is the THERM mint, `payTo` is the treasury, `maxAmountRequired` is the estimate in raw units, and `extra.memo` is the prompt. Retry with `PAYMENT-SIGNATURE` or `X-PAYMENT`, base64 JSON `{ "payload": { "transaction": "<signed legacy tx>" } }`. The transferChecked must pay the treasury at least that raw amount and the memo must equal the prompt. The answer for a signature is `GET /api/x402/data/:sig` (includes `replySig` once the on-chain reply is sent). `GET /api/therm/config` lists the same routes plus the reply wallet's address. `POST /api/therm/vote` returns 410.
 
+## MCP: the same inference, as tools another AI can call
+
+`POST /api/mcp` is a stateless MCP (Model Context Protocol) streamable-HTTP server (`server/mcp.js`, built on `@modelcontextprotocol/sdk`) — add it to any MCP client (Claude, an agent framework, another node) as a remote server and it gets four tools, no API key, payment is the auth:
+
+- **`therm_status`** — mint, treasury, reply wallet, rate. Call first.
+- **`therm_quote(prompt)`** — the x402 `accepts` challenge: asset, `payTo`, exact raw amount, the memo (the prompt itself).
+- **`therm_pay(prompt, transaction)`** — the caller builds and signs a `transferChecked` for that amount/memo themselves (this server never touches a caller's key), submits the base64 transaction here, gets the job signature back immediately.
+- **`therm_result(signature)`** — poll by signature: `pending | received | queued | computing | done | error`, and the answer once `done`.
+
+It's the same `buildX402Challenge` / `settleX402Payment` / `getX402Data` functions the HTTP x402 route uses — a quote from `therm_quote` and a quote from `POST /api/x402/infer` never disagree, because it's the same code. Mounted under `/api/`, not at bare `/mcp`, because `deploy/nginx-thermopolium.conf` only proxies `/thermopolium/api/*` to this service — anything outside that falls through to the SPA.
+
 The ecosystem list is `GET /api/therm/projects`, newest first. An application is the Telegram form: name, app, what it does, https link. It does not import a page from anywhere else.
 
 `THERM_MINT` may be the SPL mint or the Meteora Dynamic Bonding Curve pool the token launched on. The API reads the pool's base mint and uses that for transfers, the watcher, and x402. With `THERM_MINT`/`THERM_TREASURY` empty the watcher stays idle and the rest of the site works. See `deploy/thermopolium.env.example`.

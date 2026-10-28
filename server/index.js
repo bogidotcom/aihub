@@ -12,6 +12,7 @@ import { YOGA_PACKAGES, YOGA_SLOTS, VIBECODING_PROGRAMS } from './catalog.js'
 import { createOrder, fulfillOrder, markPaid, startWatcher, buildTonPayload, ALT_ADDRESSES, KGST, amountLabel, setNotifiers } from './payments.js'
 import { startBot, sendTo, notifyAdmins, getBotUsername } from './bot.js'
 import { startTherm, createProject } from './therm.js'
+import { startMcp } from './mcp.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 3460)
@@ -507,6 +508,7 @@ if (process.env.SERVE_STATIC === '1' && fs.existsSync(DIST_DIR)) {
 }
 
 startTherm(app, { notifyAdmins, requireAdmin })
+startMcp(app)
 
 app.listen(PORT, () => console.log(`[thermopolium] API on http://localhost:${PORT}`))
 startWatcher(Number(process.env.WATCH_INTERVAL_MS || 20000))
