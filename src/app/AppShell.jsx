@@ -86,7 +86,7 @@ function SideLink({ item, stacked }) {
   return (
     <NavLink to={item.to}
       className={({ isActive }) => stacked
-        ? `flex flex-col items-center justify-center gap-1 py-2 px-0.5 min-w-0 text-[10px] leading-tight transition-colors ${isActive ? 'text-accent font-semibold' : 'text-ink-faint hover:text-ink'}`
+        ? `flex flex-col items-center justify-center gap-1 py-2 px-0.5 min-w-0 w-full text-[10px] text-center leading-tight transition-colors ${isActive ? 'text-accent font-semibold' : 'text-ink-faint hover:text-ink'}`
         : `flex items-center gap-3.5 px-4 py-3 rounded-xl text-[15px] transition-colors ${isActive ? 'bg-chip text-accent font-semibold' : 'text-ink-soft hover:bg-chip hover:text-ink'}`}>
       {icon}<span className={stacked ? 'truncate w-full' : ''}>{label}</span>
     </NavLink>
