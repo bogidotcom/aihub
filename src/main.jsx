@@ -11,9 +11,8 @@ import Therm from './pages/Therm.jsx'
 import Feed from './site/Feed.jsx'
 import { BlogPage, BlogPostPage, BlogList, BlogPostBody } from './pages/Blog.jsx'
 import AppShell from './app/AppShell.jsx'
-import EventsTab, { EventDetail } from './app/EventsTab.jsx'
 import Invoice from './app/Invoice.jsx'
-import TicketView from './app/TicketView.jsx'
+import Apply from './app/Apply.jsx'
 import Yoga from './app/Yoga.jsx'
 import Learn from './app/Learn.jsx'
 import Work from './app/Work.jsx'
@@ -51,9 +50,9 @@ createRoot(document.getElementById('root')).render(
             <Route path="/therm" element={<KeepHash to="/app/therm" />} />
             <Route path="/feed" element={<KeepHash to="/app/feed" />} />
             <Route path="/projects" element={<KeepHash to="/app/therm" />} />
-            <Route path="/ticket/:qr" element={<TicketView />} />
+            <Route path="/ticket/:qr" element={<Navigate to="/app/therm" replace />} />
             <Route path="/app" element={<AppShell />}>
-              <Route index element={<Navigate to="/app/events" replace />} />
+              <Route index element={<Navigate to="/app/therm" replace />} />
               <Route path="learn" element={<Learn />} />
               <Route path="work" element={<Work />} />
               <Route path="blog" element={<AppBlog />} />
@@ -61,9 +60,11 @@ createRoot(document.getElementById('root')).render(
               <Route path="therm" element={<Therm />} />
               <Route path="feed" element={<Feed />} />
               <Route path="projects" element={<Navigate to="/app/therm" replace />} />
-              <Route path="events" element={<EventsTab />} />
+              <Route path="events" element={<Navigate to="/app/therm" replace />} />
+              <Route path="event/thermopolium" element={<Navigate to="/app/apply" replace />} />
+              <Route path="event/:slug" element={<Navigate to="/app/therm" replace />} />
+              <Route path="apply" element={<Apply />} />
               <Route path="submissions" element={<Submissions />} />
-              <Route path="event/:slug" element={<EventDetail />} />
               <Route path="yoga" element={<Yoga />} />
               <Route path="gifts" element={<Gifts />} />
               <Route path="invoice/:id" element={<Invoice />} />

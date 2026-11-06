@@ -6,7 +6,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 import express from 'express'
 import QRCode from 'qrcode'
-import { db, genToken, seedDemoEvents } from './db.js'
+import { db } from './db.js'
 import { attachUser, requireAuth, requireAdmin, validateInitData, validateWidget, upsertUser, createSession } from './auth.js'
 import { YOGA_PACKAGES, YOGA_SLOTS, VIBECODING_PROGRAMS } from './catalog.js'
 import { createOrder, fulfillOrder, markPaid, startWatcher, buildTonPayload, ALT_ADDRESSES, KGST, amountLabel, setNotifiers } from './payments.js'
@@ -23,7 +23,6 @@ app.set('trust proxy', true)
 app.use(express.json({ limit: '10mb' }))
 app.use(attachUser)
 
-seedDemoEvents()
 setNotifiers({ notify: sendTo, notifyAdmins })
 
 const publicUser = (u) => u && ({ id: u.id, tg_id: u.tg_id, username: u.username, first_name: u.first_name, last_name: u.last_name, photo_url: u.photo_url, is_admin: !!u.is_admin })
@@ -120,110 +119,6 @@ app.get('/api/blog/:slug', (req, res) => {
   res.json({ post })
 })
 
-// ---------- events ----------
-function eventCopy(e) {
-  let pack = {}
-  try { pack = JSON.parse(e.i18n || '{}') || {} } catch { pack = {} }
-  if (!pack.en && !pack.ru && typeof e.description === 'string' && e.description.includes('\n—\n')) {
-    const [ru, ...rest] = e.description.split(/\n—\n/)
-    const en = rest.join('\n—\n').trim()
-    if (en && ru.trim()) pack = { ru: ru.trim(), en }
-  }
-  return {
-    en: String(pack.en || '').trim(),
-    ru: String(pack.ru || '').trim(),
-  }
-}
-
-const hydrateEvent = (e) => {
-  const copy = eventCopy(e)
-  return {
-    ...e,
-    descriptions: copy,
-    description: copy.en || copy.ru || e.description,
-    when: new Date(e.ends_at || e.starts_at).getTime() >= Date.now() ? 'upcoming' : 'past',
-    ticket_types: db.prepare('SELECT * FROM ticket_types WHERE event_id = ? AND active = 1 ORDER BY CAST(price_usdt AS REAL) ASC, CAST(price_kgs AS REAL) ASC').all(e.id)
-      .map(t => ({ ...t, available: t.supply == null ? null : Math.max(0, t.supply - (t.sold || 0) - pendingQty(t.id)) })),
-  }
-}
-
-const saveEventCopy = (body, previous) => {
-  const incoming = body?.descriptions
-  const prev = eventCopy(previous || {})
-  const en = incoming ? String(incoming.en ?? '') : (body?.description ?? prev.en)
-  const ru = incoming ? String(incoming.ru ?? '') : prev.ru
-  const descriptions = { en: String(en || '').trim(), ru: String(ru || '').trim() }
-  return { description: descriptions.en || descriptions.ru || String(body?.description || previous?.description || ''), i18n: JSON.stringify(descriptions) }
-}
-const pendingQty = (ttId) =>
-  db.prepare("SELECT COALESCE(SUM(quantity),0) AS n FROM orders WHERE ticket_type_id = ? AND status IN ('pending','review')").get(ttId).n
-
-app.get('/api/events', (req, res) => {
-  const when = req.query.when || 'upcoming'
-  let events = db.prepare("SELECT * FROM events WHERE status = 'published' ORDER BY starts_at ASC").all().map(hydrateEvent)
-  if (when !== 'all') events = events.filter(e => e.when === when)
-  if (when === 'past') events.reverse()
-  res.json({ events })
-})
-
-app.get('/api/events/:slug', (req, res) => {
-  const e = db.prepare('SELECT * FROM events WHERE slug = ? OR id = ?').get(req.params.slug, Number(req.params.slug) || -1)
-  if (!e) return res.status(404).json({ error: 'NOT_FOUND' })
-  res.json({ event: hydrateEvent(e) })
-})
-
-// minimal admin CRUD so events can be added without a UI (x-admin-token)
-app.post('/api/admin/events', requireAdmin, (req, res) => {
-  const b = req.body || {}
-  const slug = b.slug || (b.title || 'event').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + genToken(3).toLowerCase()
-  const copy = saveEventCopy(b, {})
-  const r = db.prepare('INSERT INTO events (title, slug, description, cover_image, venue, location, starts_at, ends_at, status, i18n) VALUES (?,?,?,?,?,?,?,?,?,?)')
-    .run(b.title || 'Untitled', slug, copy.description, b.cover_image || '', b.venue || '', b.location || '', b.starts_at || new Date().toISOString(), b.ends_at || '', b.status || 'published', copy.i18n)
-  const eventId = Number(r.lastInsertRowid)
-  for (const t of b.ticket_types || []) {
-    db.prepare('INSERT INTO ticket_types (event_id, name, description, price_usdt, price_kgs, supply) VALUES (?,?,?,?,?,?)')
-      .run(eventId, t.name || 'Ticket', t.description || '', String(t.price_usdt ?? '0'), String(t.price_kgs ?? '0'), t.supply ?? null)
-  }
-  res.json({ event: hydrateEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(eventId)) })
-})
-
-app.put('/api/admin/events/:id', requireAdmin, (req, res) => {
-  const eventId = Number(req.params.id)
-  const e = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId)
-  if (!e) return res.status(404).json({ error: 'NOT_FOUND' })
-
-  const b = req.body || {}
-  const copy = saveEventCopy(b, e)
-  db.prepare('UPDATE events SET title = ?, description = ?, cover_image = ?, venue = ?, location = ?, starts_at = ?, ends_at = ?, status = ?, i18n = ? WHERE id = ?')
-    .run(b.title || e.title, copy.description, b.cover_image ?? e.cover_image, b.venue ?? e.venue,
-         b.location ?? e.location, b.starts_at || e.starts_at, b.ends_at ?? e.ends_at, b.status || e.status, copy.i18n, eventId)
-
-  // Update ticket types
-  if (Array.isArray(b.ticket_types)) {
-    for (const t of b.ticket_types) {
-      if (t.id) {
-        db.prepare('UPDATE ticket_types SET name = ?, description = ?, price_usdt = ?, price_kgs = ?, supply = ?, active = ? WHERE id = ?')
-          .run(t.name, t.description || '', String(t.price_usdt ?? '0'), String(t.price_kgs ?? '0'), t.supply ?? null, t.active !== false ? 1 : 0, t.id)
-      } else {
-        db.prepare('INSERT INTO ticket_types (event_id, name, description, price_usdt, price_kgs, supply) VALUES (?,?,?,?,?,?)')
-          .run(eventId, t.name || 'Ticket', t.description || '', String(t.price_usdt ?? '0'), String(t.price_kgs ?? '0'), t.supply ?? null)
-      }
-    }
-  }
-
-  res.json({ event: hydrateEvent(db.prepare('SELECT * FROM events WHERE id = ?').get(eventId)) })
-})
-
-app.delete('/api/admin/events/:id', requireAdmin, (req, res) => {
-  const eventId = Number(req.params.id)
-  const e = db.prepare('SELECT * FROM events WHERE id = ?').get(eventId)
-  if (!e) return res.status(404).json({ error: 'NOT_FOUND' })
-
-  db.prepare('DELETE FROM ticket_types WHERE event_id = ?').run(eventId)
-  db.prepare('DELETE FROM events WHERE id = ?').run(eventId)
-  res.json({ ok: true })
-})
-
 // ---------- contact ----------
 app.post('/api/contact', async (req, res) => {
   const { name = '', contact = '', message = '', topic = 'general', blockchain = '' } = req.body || {}
@@ -259,20 +154,7 @@ app.post('/api/contact', async (req, res) => {
 app.post('/api/checkout', (req, res) => {
   const b = req.body || {}
   let order
-  if (b.kind === 'ticket') {
-    const tt = db.prepare('SELECT * FROM ticket_types WHERE id = ?').get(Number(b.ticket_type_id))
-    if (!tt) return res.status(404).json({ error: 'TICKET_TYPE_NOT_FOUND' })
-    const qty = Math.max(1, Math.min(20, Number(b.quantity) || 1))
-    if (tt.supply != null && tt.supply - (tt.sold || 0) - pendingQty(tt.id) < qty) return res.status(409).json({ error: 'SOLD_OUT' })
-    const base = (Number(tt.price_usdt) * qty).toFixed(2)
-    const baseKgs = (Number(tt.price_kgs) * qty).toFixed(0)
-    order = createOrder({
-      kind: 'ticket', event_id: tt.event_id, ticket_type_id: tt.id, quantity: qty,
-      user: req.user, buyer_name: b.buyer_name || '', buyer_contact: b.buyer_contact || '',
-      baseUsdt: base, baseKgs,
-    })
-    if (order.status === 'paid') fulfillOrder(order) // free ticket
-  } else if (b.kind === 'yoga_package') {
+  if (b.kind === 'yoga_package') {
     if (!req.user) return res.status(401).json({ error: 'AUTH_REQUIRED' })
     const pkg = YOGA_PACKAGES[b.package]
     if (!pkg) return res.status(404).json({ error: 'PACKAGE_NOT_FOUND' })
@@ -320,7 +202,6 @@ app.get('/api/orders/:id', async (req, res) => {
   if (!o) return res.status(404).json({ error: 'NOT_FOUND' })
   const view = orderView(o)
   if (o.status === 'paid') {
-    if (o.kind === 'ticket') view.tickets = db.prepare('SELECT qr_token FROM tickets WHERE order_id = ?').all(o.id)
     if (o.kind === 'giftcard') view.giftcard = db.prepare('SELECT code, gift_kind, ref, amount_usdt FROM giftcards WHERE order_id = ?').get(o.id)
   }
   try { view.qr = await QRCode.toDataURL(process.env.TON_ADDRESS || '', { margin: 1, width: 240 }) } catch { /* noop */ }
@@ -352,32 +233,6 @@ app.post('/api/orders/:id/submit-hash', async (req, res) => {
     `🔎 Payment review — order #${o.id} (${o.kind})\nAmount: ${amountLabel(o)} on ${chain}\nHash: ${hash}\nBuyer: ${o.buyer_name || o.buyer_tg_id || 'guest'}`,
     { reply_markup: { inline_keyboard: [[{ text: '✅ Approve', callback_data: `ok:${o.id}` }, { text: '❌ Reject', callback_data: `no:${o.id}` }]] } })
   res.json({ ok: true, status: 'review' })
-})
-
-// ---------- tickets ----------
-app.get('/api/tickets/:qr', async (req, res) => {
-  const t = db.prepare('SELECT * FROM tickets WHERE qr_token = ?').get(req.params.qr)
-  if (!t) return res.status(404).json({ error: 'NOT_FOUND' })
-  const event = db.prepare('SELECT * FROM events WHERE id = ?').get(t.event_id)
-  const tt = db.prepare('SELECT * FROM ticket_types WHERE id = ?').get(t.ticket_type_id)
-  const qr = await QRCode.toDataURL(t.qr_token, { margin: 1, width: 320 })
-  res.json({ ticket: t, event, ticket_type: tt, qr })
-})
-
-app.get('/api/me/tickets', requireAuth, (req, res) => {
-  const rows = db.prepare(`
-    SELECT t.*, e.title AS event_title, e.starts_at, tt.name AS type_name
-    FROM tickets t JOIN events e ON e.id = t.event_id LEFT JOIN ticket_types tt ON tt.id = t.ticket_type_id
-    WHERE t.owner_user_id = ? ORDER BY t.created_at DESC`).all(req.user.id)
-  res.json({ tickets: rows })
-})
-
-app.post('/api/checkin', requireAdmin, (req, res) => {
-  const t = db.prepare('SELECT * FROM tickets WHERE qr_token = ?').get(String(req.body?.qr_token || ''))
-  if (!t) return res.status(404).json({ error: 'NOT_FOUND' })
-  if (t.status === 'checked_in') return res.json({ already: true, ticket: t })
-  db.prepare("UPDATE tickets SET status = 'checked_in', checked_in_at = ? WHERE id = ?").run(new Date().toISOString(), t.id)
-  res.json({ ok: true })
 })
 
 // ---------- yoga ----------

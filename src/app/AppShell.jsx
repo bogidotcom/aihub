@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, Link, useLocation } from 'react-router-dom'
-import { CalendarDays, Megaphone, Calendar, Flame, MessagesSquare, PenLine } from 'lucide-react'
+import { Megaphone, Flame, MessagesSquare, PenLine } from 'lucide-react'
 import { ThemeFrame, useClock } from '../theme.jsx'
 import { useSession } from '../session.jsx'
 import { isTelegram, openTelegramLink } from '../telegram.js'
@@ -8,11 +8,9 @@ import { Modal, GradBtn } from '../ui.jsx'
 import { useI18n, LangSwitcher } from '../i18n.jsx'
 import { media } from '../media.js'
 import Broadcast from './Broadcast.jsx'
-import EventsAdmin from './EventsAdmin.jsx'
 import { ComposeProvider, useCompose } from '../site/Compose.jsx'
 
 const NAV = [
-  { to: '/app/events', icon: CalendarDays, label: 'tabs.events' },
   { to: '/app/therm', icon: Flame, label: 'nav.therm' },
   { to: '/app/feed', icon: MessagesSquare, label: 'nav.feed' },
   { icon: PenLine, label: 'compose.title', compose: true },
@@ -100,7 +98,6 @@ export default function AppShell() {
   const { user, ready } = useSession()
   const [profileOpen, setProfileOpen] = useState(false)
   const [broadcastOpen, setBroadcastOpen] = useState(false)
-  const [eventsAdminOpen, setEventsAdminOpen] = useState(false)
   const [loginOpen, setLoginOpen] = useState(false)
   const wide = pathname === '/app/therm' || pathname === '/app/feed'
 
@@ -187,15 +184,14 @@ export default function AppShell() {
       <Modal open={loginOpen} onClose={() => setLoginOpen(false)}>
         <LoginCard prompt={t('shell.loginPrompt')} />
       </Modal>
-      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} user={user} onBroadcast={() => { setProfileOpen(false); setBroadcastOpen(true) }} onEventsAdmin={() => { setProfileOpen(false); setEventsAdminOpen(true) }} />
+      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} user={user} onBroadcast={() => { setProfileOpen(false); setBroadcastOpen(true) }} />
       {broadcastOpen && <Broadcast user={user} onClose={() => setBroadcastOpen(false)} />}
-      {eventsAdminOpen && <EventsAdmin onClose={() => setEventsAdminOpen(false)} />}
     </ThemeFrame>
     </ComposeProvider>
   )
 }
 
-function ProfileModal({ open, onClose, user, onBroadcast, onEventsAdmin }) {
+function ProfileModal({ open, onClose, user, onBroadcast }) {
   const { t } = useI18n()
   const { logout } = useSession()
   if (!user) return null
@@ -211,14 +207,9 @@ function ProfileModal({ open, onClose, user, onBroadcast, onEventsAdmin }) {
         <div className="grid gap-2 text-left">
           <GradBtn as={Link} to="/app/submissions" onClick={onClose} className="!py-2.5 text-sm">{user.is_admin ? t('shell.allSubmissions') : t('shell.myClasses')}</GradBtn>
           {isBogidotcom && (
-            <>
-              <button onClick={onEventsAdmin} className="bg-accent/10 border border-accent rounded-lg px-4 py-3 text-accent text-sm hover:bg-accent/20 transition-colors flex items-center gap-2 justify-center font-semibold cursor-pointer">
-                <Calendar className="w-4 h-4" /> Manage Events
-              </button>
-              <button onClick={onBroadcast} className="bg-accent/10 border border-accent rounded-lg px-4 py-3 text-accent text-sm hover:bg-accent/20 transition-colors flex items-center gap-2 justify-center font-semibold cursor-pointer">
-                <Megaphone className="w-4 h-4" /> Broadcast
-              </button>
-            </>
+            <button onClick={onBroadcast} className="bg-accent/10 border border-accent rounded-lg px-4 py-3 text-accent text-sm hover:bg-accent/20 transition-colors flex items-center gap-2 justify-center font-semibold cursor-pointer">
+              <Megaphone className="w-4 h-4" /> Broadcast
+            </button>
           )}
         </div>
         {!isTelegram() && (

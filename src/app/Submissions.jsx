@@ -36,11 +36,11 @@ export default function Submissions() {
     <div className="space-y-6">
       <h1 className="text-liquid text-3xl font-bold tracking-tight">{all ? t('submissions.all') : t('submissions.mine')}</h1>
       {err ? (
-        <p className="text-ink-soft">{t('events.checkoutFail')}</p>
+        <p className="text-ink-soft">{t('apply.fail')}</p>
       ) : !data ? <Spinner label="loading submissions" /> : rows.length === 0 ? (
         <div className="text-center py-16 space-y-4">
           <p className="text-ink-soft">{all ? t('submissions.emptyAll') : t('submissions.empty')}</p>
-          <GradBtn as={Link} to="/app/event/thermopolium" className="mx-auto">{t('submissions.submitCta')}</GradBtn>
+          <GradBtn as={Link} to="/app/apply" className="mx-auto">{t('submissions.submitCta')}</GradBtn>
         </div>
       ) : (
         <div className="space-y-3">

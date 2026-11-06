@@ -2,7 +2,7 @@
 # Deploy Thermopolium to https://iamai.kg/thermopolium/ on the `hk` box.
 #
 #   deploy/deploy.sh                 dry run — prints every step, changes nothing
-#   deploy/deploy.sh --yes           build, rsync, install deps, seed the event, (re)start under pm2
+#   deploy/deploy.sh --yes           build, rsync, install deps, (re)start under pm2
 #   deploy/deploy.sh --yes --nginx   …and install the nginx snippet (never edits iamai.kg.conf itself)
 #
 # Layout on hk:   /var/www/thermopolium/          static build (nginx serves it)
@@ -47,8 +47,8 @@ if [ "$YES" = 1 ] && ! ssh "$HOST" "test -f $SRV/.env"; then
   exit 0
 fi
 
-# Seed BEFORE the first start: with an empty events table the server would insert its demo events instead.
-remote "cd $SRV && DB_PATH=$DATA/thermopolium.db node --disable-warning=ExperimentalWarning seed-thermopolium.mjs"
+# The old event seed is a no-op. Nights live in Crosswalk.
+remote "cd $SRV && node --disable-warning=ExperimentalWarning seed-thermopolium.mjs"
 remote "pm2 startOrReload /opt/thermopolium/ecosystem.config.cjs --update-env && pm2 save"
 
 if [ "$NGINX" = 1 ]; then

@@ -62,24 +62,6 @@ export function setNotifiers({ notify, notifyAdmins }) { notifyFn = notify; noti
 
 export function fulfillOrder(order) {
   const meta = safeJson(order.meta)
-  if (order.kind === 'ticket') {
-    const existing = db.prepare('SELECT * FROM tickets WHERE order_id = ?').all(order.id)
-    if (!existing.length) {
-      const ins = db.prepare('INSERT INTO tickets (event_id, ticket_type_id, order_id, owner_user_id, holder_name, qr_token) VALUES (?,?,?,?,?,?)')
-      for (let i = 0; i < (order.quantity || 1); i++) {
-        ins.run(order.event_id, order.ticket_type_id, order.id, order.buyer_user_id, order.buyer_name || '', genToken(18))
-      }
-      db.prepare('UPDATE ticket_types SET sold = sold + ? WHERE id = ?').run(order.quantity || 1, order.ticket_type_id)
-    }
-    const event = db.prepare('SELECT * FROM events WHERE id = ?').get(order.event_id)
-    const tickets = db.prepare('SELECT * FROM tickets WHERE order_id = ?').all(order.id)
-    if (order.buyer_tg_id) {
-      const base = process.env.WEB_APP_URL || ''
-      const links = tickets.map(t => base ? `${base}/ticket/${t.qr_token}` : t.qr_token).join('\n')
-      notifyFn(order.buyer_tg_id, `🎉 Your ticket${tickets.length > 1 ? 's are' : ' is'} confirmed!\n\n${event?.title || 'Event'}\n${links}`)
-    }
-    notifyAdminsFn(`💸 Ticket order #${order.id} paid — ${order.quantity}× for "${event?.title}" (${amountLabel(order)}) by ${buyerLabel(order)}`)
-  }
   if (order.kind === 'yoga_package') {
     const pkg = YOGA_PACKAGES[order.item]
     if (pkg && order.buyer_user_id) {

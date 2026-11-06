@@ -193,29 +193,3 @@ export function setSetting(key, value) {
     .run(key, JSON.stringify(value))
 }
 
-export function seedDemoEvents() {
-  const n = db.prepare('SELECT COUNT(*) AS n FROM events').get().n
-  if (n > 0) return
-  const insEvent = db.prepare(
-    'INSERT INTO events (title, slug, description, cover_image, venue, location, starts_at, ends_at) VALUES (?,?,?,?,?,?,?,?)')
-  const insTt = db.prepare(
-    'INSERT INTO ticket_types (event_id, name, description, price_usdt, price_kgs, supply) VALUES (?,?,?,?,?,?)')
-
-  const inDays = (d, h = 18) => { const t = new Date(); t.setDate(t.getDate() + d); t.setHours(h, 0, 0, 0); return t.toISOString() }
-
-  const e1 = insEvent.run('AIHub Opening Meetup', 'opening-meetup',
-    'First community gathering at the hub — meet the residents, see the space, talk AI-native business over dinner.',
-    'photos/cover-opening.jpg', 'AIHub Countryside', '', inDays(14), inDays(14, 22)).lastInsertRowid
-  insTt.run(e1, 'Community', 'Entry + dinner', '15', '1300', 60)
-  insTt.run(e1, 'Supporter', 'Entry + dinner + hub tour', '42', '3700', 20)
-
-  const e2 = insEvent.run('Vibe-Coding Demo Night', 'demo-night',
-    'Residents demo what they built this month. Live music after.',
-    'photos/cover-demo.jpg', 'AIHub Countryside', '', inDays(30, 19), inDays(30, 23)).lastInsertRowid
-  insTt.run(e2, 'Free entry', 'RSVP required', '0', '0', 100)
-
-  const e3 = insEvent.run('Hackathon: Automate Your Business', 'hackathon-automate',
-    '48h building AI automations for real local businesses. Teams of 2-4, prizes from sponsors.',
-    'photos/cover-hackathon.jpg', 'AIHub Countryside', '', inDays(-20, 10), inDays(-18, 20)).lastInsertRowid
-  insTt.run(e3, 'Hacker', 'Full weekend + meals', '25', '2200', 40)
-}

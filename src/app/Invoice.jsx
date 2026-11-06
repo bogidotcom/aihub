@@ -70,16 +70,6 @@ export default function Invoice() {
       <div className="space-y-5 text-center py-6">
         <p className="text-5xl">🎉</p>
         <h1 className="text-liquid text-3xl font-bold">{t('invoice.confirmed')}</h1>
-        {order.kind === 'ticket' && order.tickets?.length > 0 && (
-          <Glass className="rounded-2xl p-6 space-y-3 text-left">
-            <p className="font-mono text-xs uppercase tracking-widest text-ink-faint">{order.tickets.length > 1 ? t('invoice.yourTickets') : t('invoice.yourTicket')}</p>
-            {order.tickets.map((tk, i) => (
-              <Link key={tk.qr_token} to={`/ticket/${tk.qr_token}`} className="block bg-chip border border-veil rounded-lg px-4 py-3 text-ink hover:bg-veil transition-colors">
-                {t('invoice.ticketN', { n: i + 1 })}
-              </Link>
-            ))}
-          </Glass>
-        )}
         {order.kind === 'giftcard' && order.giftcard && (
           <Glass className="rounded-2xl p-6 space-y-2">
             <p className="font-mono text-xs uppercase tracking-widest text-ink-faint">{t('invoice.giftCode')}</p>
@@ -88,7 +78,7 @@ export default function Invoice() {
           </Glass>
         )}
         {order.kind === 'yoga_package' && (
-          <GradBtn as={Link} to="/app/events" className="mx-auto">{t('invoice.bookFirst')}</GradBtn>
+          <GradBtn as={Link} to="/app/yoga" className="mx-auto">{t('invoice.bookFirst')}</GradBtn>
         )}
       </div>
     )

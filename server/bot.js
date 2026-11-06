@@ -66,19 +66,8 @@ async function onMessage(msg) {
     await sendTo(chatId, `Your Telegram ID: ${from.id}\nChat ID: ${chatId}`)
     return
   }
-  if (text === '/mytickets') {
-    const rows = db.prepare(`
-      SELECT t.qr_token, e.title FROM tickets t JOIN events e ON e.id = t.event_id
-      JOIN users u ON u.id = t.owner_user_id WHERE u.tg_id = ? AND t.status != 'void'`).all(String(from.id))
-    if (!rows.length) {
-      const markup = mainMenuKeyboard()
-      return sendTo(chatId, 'No tickets yet — grab one in the app!', markup ? { reply_markup: markup } : {})
-    }
-    const base = WEB_APP_URL ? `${WEB_APP_URL}/ticket/` : ''
-    return sendTo(chatId, rows.map(r => `🎟 ${r.title}\n${base ? base + r.qr_token : r.qr_token}`).join('\n\n'))
-  }
   const markup = mainMenuKeyboard()
-  await sendTo(chatId, 'Hi! Use the button below to open the app, or /mytickets to see your tickets.',
+  await sendTo(chatId, 'Hi! Use the button below to open the app.',
     markup ? { reply_markup: markup } : {})
 }
 
@@ -122,7 +111,6 @@ export async function startBot() {
   await tg('setMyCommands', {
     commands: [
       { command: 'start', description: 'Open Thermopolium' },
-      { command: 'mytickets', description: 'My tickets' },
       { command: 'id', description: 'Show my Telegram ID' },
     ],
   })

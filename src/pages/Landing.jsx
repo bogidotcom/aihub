@@ -79,7 +79,7 @@ export default function Landing() {
             </Reveal>
 
             <Reveal delay={150} className="flex flex-col sm:flex-row gap-4 pt-2">
-              <GradBtn as={Link} to="/app/event/thermopolium" className="group px-8 py-4">
+              <GradBtn as={Link} to="/app/apply" className="group px-8 py-4">
                 {t('hero.ctaSubmit')} <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
               </GradBtn>
               <a href="https://iamai.kg/docs/#jobs" target="_blank" rel="noreferrer"
@@ -227,7 +227,7 @@ export default function Landing() {
                 <p className="text-ink-faint text-xs">{t('event.chains')}</p>
               </div>
               <div className="pt-2">
-                <GradBtn as={Link} to="/app/event/thermopolium" className="group px-8 py-4">
+                <GradBtn as={Link} to="/app/apply" className="group px-8 py-4">
                   {t('event.cta')} <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
                 </GradBtn>
                 <p className="font-mono text-[11px] text-ink-faint mt-3">{t('event.ctaSub')}</p>
